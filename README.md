@@ -88,3 +88,9 @@ Transactions (BEGIN/COMMIT/ROLLBACK) are used in: registration (user + profile),
 - **Deployment:** configuration is in `render.yaml` and `docs/DEPLOY.md`. It has not been deployed yet.
 - **Study material:** `docs/DEFENSE_GUIDE.md` (questions the professor may ask) and `docs/DEMO_SCRIPT.md` (7-minute plan).
 - All members and data are fictional demo data.
+
+## Update: reviews, swap history, day/night mode
+- `reviews` table (PostgreSQL): rating 1-5 (CHECK), one review per person per swap (UNIQUE (exchange_id, reviewer_id)), no self-review (CHECK). Only participants of a COMPLETED swap can review.
+- Swap history on the Swaps page comes from `exchange_status_log` (written in the same transaction as every status change).
+- Day/night mode toggle (saved per browser). Loading placeholders, toast messages and a profile avatar in the header.
+- Existing database (e.g. Supabase): run `npm run db:migrate` once to add the `reviews` table without losing data. A fresh `npm run db:reset` also creates it and adds 3 demo swaps with reviews.

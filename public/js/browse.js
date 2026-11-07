@@ -1,4 +1,4 @@
-import { api, h, $, requireLogin, renderShell, chip, empty } from '/app.js';
+import { api, h, $, requireLogin, renderShell, chip, empty, skeleton } from '/app.js';
 
 await requireLogin();
 renderShell();
@@ -25,6 +25,7 @@ let timer;
 async function search() {
   const params = new URLSearchParams({ q: q.value, category: cat.value });
   if (!cat.value) params.delete('category');
+  results.replaceChildren(...skeleton(2));
   const members = await api('GET', `/api/members?${params}`);
   results.replaceChildren();
   if (!members.length) results.append(empty('No members found. Try a different word.'));

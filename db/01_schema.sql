@@ -2,7 +2,7 @@
 -- Normalized to 3NF: every non-key column depends only on its table's key.
 
 DROP VIEW IF EXISTS v_mutual_matches;
-DROP TABLE IF EXISTS search_log, exchange_status_log, exchanges, user_requests, user_offers,
+DROP TABLE IF EXISTS reviews, search_log, exchange_status_log, exchanges, user_requests, user_offers,
                      skills, categories, profiles, sessions, users CASCADE;
 
 -- 1. Accounts: login data only
@@ -88,6 +88,20 @@ CREATE TABLE exchange_status_log (
   changed_by  INTEGER     NOT NULL REFERENCES users(id),
   changed_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- 7b. Reviews: after a swap is completed, each of the two people can rate the other (1-5) once.
+CREATE TABLE IF NOT EXISTS reviews (
+  id          SERIAL PRIMARY KEY,
+  exchange_id INTEGER     NOT NULL REFERENCES exchanges(id) ON DELETE CASCADE,
+  reviewer_id INTEGER     NOT NULL REFERENCES users(id)     ON DELETE CASCADE,
+  reviewee_id INTEGER     NOT NULL REFERENCES users(id)     ON DELETE CASCADE,
+  rating      SMALLINT    NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  comment     VARCHAR(300) NOT NULL DEFAULT '',
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (exchange_id, reviewer_id),             -- one review per person per swap
+  CONSTRAINT no_self_review CHECK (reviewer_id <> reviewee_id)
+);
+CREATE INDEX IF NOT EXISTS idx_reviews_reviewee ON reviews(reviewee_id, created_at DESC);
 
 -- Indexes for the joins we actually run (matching + inbox)
 CREATE INDEX idx_offers_skill    ON user_offers(skill_id);

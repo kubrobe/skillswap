@@ -52,9 +52,32 @@ const ex = async (req, prov, wanted, offered, msg, status) => {
 await ex('bobur@demo.uz', 'aziza@demo.uz', 'Python basics', 'JavaScript', 'Hi Aziza, want to swap an hour each this week?', 'pending');
 await ex('kamola@demo.uz', 'timur@demo.uz', 'SQL and databases', 'Korean for beginners', 'Korean for SQL?', 'pending');
 
+// Three finished swaps with reviews, so profiles show ratings and the timeline has history to display.
+const done = async (req, prov, wanted, offered, msg, reviews) => {
+  const r = await pool.query(
+    `INSERT INTO exchanges (requester_id, provider_id, skill_wanted_id, skill_offered_id, message, status, created_at)
+     VALUES ($1,$2,$3,$4,$5,'completed', now() - interval '5 days') RETURNING id`,
+    [await uid(req), await uid(prov), await skillId(wanted), await skillId(offered), msg]);
+  const id = r.rows[0].id;
+  for (const [st, who, ago] of [['pending', req, 5], ['accepted', prov, 4], ['completed', req, 2]]) {
+    await pool.query("INSERT INTO exchange_status_log (exchange_id, status, changed_by, changed_at) VALUES ($1,$2,$3, now() - $4::int * interval '1 day')", [id, st, await uid(who), ago]);
+  }
+  for (const [by, about, rating, comment] of reviews) {
+    await pool.query('INSERT INTO reviews (exchange_id, reviewer_id, reviewee_id, rating, comment) VALUES ($1,$2,$3,$4,$5)', [id, await uid(by), await uid(about), rating, comment]);
+  }
+};
+await done('dilnoza@demo.uz', 'aziza@demo.uz', 'Python basics', 'UI design in Figma', 'Figma for Python?', [
+  ['dilnoza@demo.uz', 'aziza@demo.uz', 5, 'Patient and clear. I wrote my first script in one hour.'],
+  ['aziza@demo.uz', 'dilnoza@demo.uz', 4, 'Great Figma tips, a little rushed at the end.']]);
+await done('jasur@demo.uz', 'bobur@demo.uz', 'JavaScript', 'Guitar', 'JavaScript for guitar lessons?', [
+  ['jasur@demo.uz', 'bobur@demo.uz', 5, 'Explained everything with small examples.']]);
+await done('malika@demo.uz', 'sardor@demo.uz', 'Public speaking', 'IELTS writing', 'Speaking tips for essay tips', [
+  ['malika@demo.uz', 'sardor@demo.uz', 4, 'Useful feedback on my presentation.'],
+  ['sardor@demo.uz', 'malika@demo.uz', 5, 'Very helpful essay structure advice.']]);
+
 const counts = await pool.query(`SELECT
   (SELECT count(*) FROM users) users, (SELECT count(*) FROM skills) skills,
   (SELECT count(*) FROM user_offers) offers, (SELECT count(*) FROM user_requests) requests,
-  (SELECT count(*) FROM exchanges) exchanges`);
+  (SELECT count(*) FROM exchanges) exchanges, (SELECT count(*) FROM reviews) reviews`);
 console.log('Database ready:', counts.rows[0]);
 await pool.end();

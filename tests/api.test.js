@@ -140,3 +140,27 @@ test('database CHECK constraints work even if the API were bypassed', async () =
   await assert.rejects(pool.query("INSERT INTO exchanges (requester_id, provider_id, skill_wanted_id, skill_offered_id, status) SELECT id, id, 1, 1, 'pending' FROM users LIMIT 1"), /no_self_exchange/);
   await assert.rejects(pool.query("UPDATE exchanges SET status='banana' WHERE id = (SELECT min(id) FROM exchanges)"), /check/i);
 });
+
+test('reviews: only after completion, only by participants, one per person, average is computed', async () => {
+  const a = await newUser('rva'); const b = await newUser('rvb'); const out = await newUser('rvc');
+  await a.c('POST', '/api/me/offers', { skill_id: await skill('Python basics') });
+  await b.c('POST', '/api/me/offers', { skill_id: await skill('Guitar') });
+  const ex = (await a.c('POST', '/api/exchanges', { provider_id: b.id, skill_wanted_id: await skill('Guitar'), skill_offered_id: await skill('Python basics') })).body.id;
+
+  assert.equal((await a.c('POST', `/api/exchanges/${ex}/review`, { rating: 5, comment: 'x' })).status, 409);  // not finished yet
+  await b.c('PATCH', `/api/exchanges/${ex}`, { action: 'accept' });
+  await a.c('PATCH', `/api/exchanges/${ex}`, { action: 'complete' });
+
+  assert.equal((await out.c('POST', `/api/exchanges/${ex}/review`, { rating: 5, comment: 'x' })).status, 404); // outsider
+  assert.equal((await a.c('POST', `/api/exchanges/${ex}/review`, { rating: 6, comment: 'x' })).status, 400);  // out of range
+  assert.equal((await a.c('POST', `/api/exchanges/${ex}/review`, { rating: 0, comment: 'x' })).status, 400);
+  assert.equal((await a.c('POST', `/api/exchanges/${ex}/review`, { rating: 5, comment: 'Great teacher' })).status, 201);
+  assert.equal((await a.c('POST', `/api/exchanges/${ex}/review`, { rating: 4, comment: 'again' })).status, 409); // one per person
+  assert.equal((await b.c('POST', `/api/exchanges/${ex}/review`, { rating: 3, comment: 'ok' })).status, 201);
+
+  const rv = (await a.c('GET', `/api/members/${b.id}/reviews`)).body;
+  assert.equal(rv.count, 1); assert.equal(rv.average, 5); assert.equal(rv.latest[0].comment, 'Great teacher');
+  const mine = (await a.c('GET', '/api/exchanges')).body.find((e) => e.id === ex);
+  assert.equal(mine.reviewed, true);
+  assert.deepEqual(mine.timeline.map((t) => t.status), ['pending', 'accepted', 'completed']);
+});

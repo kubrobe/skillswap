@@ -223,7 +223,11 @@ export function apiRoutes(app) {
               e.requester_id, rp.display_name AS requester_name,
               e.provider_id,  pp.display_name AS provider_name,
               sw.name AS skill_wanted, so.name AS skill_offered,
-              CASE WHEN e.provider_id = $1 THEN 'incoming' ELSE 'outgoing' END AS direction
+              CASE WHEN e.provider_id = $1 THEN 'incoming' ELSE 'outgoing' END AS direction,
+              EXISTS (SELECT 1 FROM reviews rv WHERE rv.exchange_id = e.id AND rv.reviewer_id = $1) AS reviewed,
+              (SELECT json_agg(json_build_object('status', l.status, 'by', lp.display_name, 'at', l.changed_at) ORDER BY l.changed_at, l.id)
+                 FROM exchange_status_log l JOIN profiles lp ON lp.user_id = l.changed_by
+                WHERE l.exchange_id = e.id) AS timeline
          FROM exchanges e
          JOIN profiles rp ON rp.user_id = e.requester_id
          JOIN profiles pp ON pp.user_id = e.provider_id
@@ -235,50 +239,45 @@ export function apiRoutes(app) {
   });
 
 
-  // ---------- MongoDB features (optional) ----------
-  // Reviews of a member + average rating. Combines with the PostgreSQL profile on the member page.
+  // ---------- Reviews (PostgreSQL) ----------
+  // Average rating + latest reviews of a member (aggregate over the reviews table).
   app.get('/api/members/:id/reviews', async (req, res) => {
     const id = cleanId(req.params.id, 'id');
-    if (!mongoEnabled()) return res.json({ enabled: false });
-    const db = await mongo();
-    const [summary] = await db.collection('reviews').aggregate(P.ratingSummary(id)).toArray();
-    const latest = await db.collection('reviews').find({ reviewee_id: id }).sort({ created_at: -1 }).limit(5)
-      .project({ _id: 0, skill: 1, rating: 1, comment: 1, created_at: 1 }).toArray();
-    res.json({ enabled: true, average: summary ? Math.round(summary.average * 10) / 10 : null, count: summary ? summary.count : 0, latest });
+    const s = await query('SELECT count(*)::int AS count, round(avg(rating), 1)::float AS average FROM reviews WHERE reviewee_id = $1', [id]);
+    const latest = await query(
+      `SELECT r.rating, r.comment, r.created_at, p.display_name AS reviewer,
+              CASE WHEN e.requester_id = r.reviewee_id THEN so.name ELSE sw.name END AS skill
+         FROM reviews r
+         JOIN profiles p ON p.user_id = r.reviewer_id
+         JOIN exchanges e ON e.id = r.exchange_id
+         JOIN skills sw ON sw.id = e.skill_wanted_id JOIN skills so ON so.id = e.skill_offered_id
+        WHERE r.reviewee_id = $1 ORDER BY r.created_at DESC LIMIT 5`, [id]);
+    res.json({ enabled: true, average: s.rows[0].average, count: s.rows[0].count, latest: latest.rows });
   });
 
   // Leave a review for a COMPLETED exchange you took part in (one review per person per exchange).
   app.post('/api/exchanges/:id/review', async (req, res) => {
-    if (!mongoEnabled()) throw new HttpError(503, 'Reviews are not available right now');
     const id = cleanId(req.params.id, 'id');
     const rating = cleanId(req.body.rating, 'rating');
     if (rating > 5) throw new HttpError(400, 'rating must be between 1 and 5');
     const comment = cleanText(req.body.comment, { max: 300, field: 'Comment' });
 
-    // PostgreSQL decides if this review is allowed (who took part, is it finished?)
-    const r = await query(
-      `SELECT e.requester_id, e.provider_id, e.status, sw.name AS wanted, so.name AS offered
-         FROM exchanges e JOIN skills sw ON sw.id = e.skill_wanted_id JOIN skills so ON so.id = e.skill_offered_id
-        WHERE e.id = $1`, [id]);
+    const r = await query('SELECT requester_id, provider_id, status FROM exchanges WHERE id = $1', [id]);
     const ex = r.rows[0];
     if (!ex || (ex.requester_id !== req.user.id && ex.provider_id !== req.user.id)) throw new HttpError(404, 'Exchange not found');
     if (ex.status !== 'completed') throw new HttpError(409, 'You can review an exchange after it is marked as done');
-    const iAmRequester = ex.requester_id === req.user.id;
-
-    // MongoDB stores the review
+    const reviewee = ex.requester_id === req.user.id ? ex.provider_id : ex.requester_id;
     try {
-      const db = await mongo();
-      await db.collection('reviews').insertOne({
-        exchange_id: id, reviewer_id: req.user.id, reviewee_id: iAmRequester ? ex.provider_id : ex.requester_id,
-        skill: iAmRequester ? ex.wanted : ex.offered, rating, comment, tags: [], created_at: new Date(),
-      });
+      await query('INSERT INTO reviews (exchange_id, reviewer_id, reviewee_id, rating, comment) VALUES ($1,$2,$3,$4,$5)',
+        [id, req.user.id, reviewee, rating, comment]);
     } catch (e) {
-      if (e.code === 11000) throw new HttpError(409, 'You already reviewed this exchange');   // unique index
+      if (e.code === '23505') throw new HttpError(409, 'You already reviewed this exchange');   // UNIQUE (exchange_id, reviewer_id)
       throw e;
     }
     res.status(201).json({ ok: true });
   });
 
+  // ---------- MongoDB features (optional) ----------
   // Statistics (MongoDB aggregations): activity of the last 30 days
   app.get('/api/stats/activity', async (_req, res) => {
     if (!mongoEnabled()) return res.json({ enabled: false });

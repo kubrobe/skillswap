@@ -1,4 +1,4 @@
-import { api, h, $, requireLogin, renderShell, chip, empty, say } from '/app.js';
+import { api, h, $, requireLogin, renderShell, chip, empty, say, ago } from '/app.js';
 
 const me = await requireLogin();
 renderShell();
@@ -22,14 +22,14 @@ if (!member.offers.length) box.append(empty('Nothing listed yet.'));
 for (const o of member.offers) {
   box.append(h('div', { class: 'card' }, h('h3', {}, o.skill), h('p', { class: 'meta' }, `Level: ${o.level}`), o.description ? h('p', {}, o.description) : null));
 }
-// Reviews come from MongoDB (only shown when MongoDB is connected)
+// Reviews come from the PostgreSQL reviews table
 const rv = await api('GET', `/api/members/${id}/reviews`);
 if (rv.enabled) {
   box.append(h('h2', {}, 'Reviews'));
   if (!rv.count) box.append(empty('No reviews yet.'));
   else {
-    box.append(h('div', { class: 'row' }, chip(`${rv.average} / 5 average`, 'green'), chip(`${rv.count} review${rv.count > 1 ? 's' : ''}`, 'gray')));
-    for (const r of rv.latest) box.append(h('div', { class: 'card' }, h('h3', {}, `${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)}  ${r.skill}`), r.comment ? h('p', {}, r.comment) : null));
+    box.append(h('div', { class: 'row' }, chip(`★ ${rv.average} / 5 average`, 'green'), chip(`${rv.count} review${rv.count > 1 ? 's' : ''}`, 'gray')));
+    for (const r of rv.latest) box.append(h('div', { class: 'card' }, h('h3', {}, h('span', { class: 'stars', 'aria-label': `${r.rating} out of 5` }, `${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)}`), `  ${r.skill}`), r.comment ? h('p', {}, r.comment) : null, h('p', { class: 'meta' }, `${r.reviewer.split(' ')[0]} · ${ago(r.created_at)}`)));
   }
 }
 

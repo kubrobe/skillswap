@@ -1,4 +1,4 @@
-import { api, h, $, requireLogin, renderShell, chip, empty, say } from '/app.js';
+import { api, h, $, requireLogin, renderShell, chip, empty, say, toast, skeleton, ago } from '/app.js';
 
 await requireLogin();
 renderShell();
@@ -7,7 +7,7 @@ const box = $('#content');
 const msg = h('div', { class: 'notice error hidden', role: 'alert' });
 box.before(msg);
 
-const features = await api('GET', '/api/features');
+const DONE = { accept: 'Request accepted', decline: 'Request declined', cancel: 'Request cancelled', complete: 'Swap marked as done' };
 const TONE = { pending: 'amber', accepted: 'green', completed: 'green', declined: 'red', cancelled: 'gray' };
 
 // Which buttons to show: same rules as the server (the server enforces them too)
@@ -19,7 +19,7 @@ function actionsFor(e) {
   return acts;
 }
 
-// Review form for a finished swap (saved in MongoDB)
+// Review form for a finished swap (saved in PostgreSQL, one review per person per swap)
 function reviewForm(e, other) {
   const note = h('div', { class: 'notice hidden', role: 'status' });
   const rating = h('select', { id: `rating-${e.id}`, 'aria-label': 'Rating' }, [5, 4, 3, 2, 1].map((n) => h('option', { value: n }, `${n} - ${'★'.repeat(n)}`)));
@@ -30,10 +30,17 @@ function reviewForm(e, other) {
     h('button', { class: 'btn btn-secondary btn-small', type: 'submit' }, 'Send review'));
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
-    try { await api('POST', `/api/exchanges/${e.id}/review`, { rating: rating.value, comment: comment.value }); say(note, 'Thanks! Review saved.', 'ok'); form.querySelector('button').disabled = true; }
+    try { await api('POST', `/api/exchanges/${e.id}/review`, { rating: rating.value, comment: comment.value }); toast('Review saved. Thank you!'); load(); }
     catch (err) { say(note, err.message, 'error'); }
   });
   return form;
+}
+
+const WORDS = { pending: 'Request sent', accepted: 'Accepted', declined: 'Declined', cancelled: 'Cancelled', completed: 'Marked as done' };
+// Vertical history of the swap, read from the exchange_status_log table.
+function timeline(e) {
+  return h('ol', { class: 'timeline', 'aria-label': 'History' }, (e.timeline || []).map((t) =>
+    h('li', {}, h('span', { class: `dot dot-${TONE[t.status]}` }), h('span', { class: 'tl-text' }, `${WORDS[t.status] || t.status} by ${t.by.split(' ')[0]}`), h('span', { class: 'tl-when' }, ago(t.at)))));
 }
 
 function card(e) {
@@ -47,16 +54,18 @@ function card(e) {
       ? `They want to learn ${e.skill_wanted} and can teach you ${e.skill_offered}.`
       : `You want to learn ${e.skill_wanted} and will teach ${e.skill_offered}.`),
     e.message ? h('p', { class: 'meta' }, `"${e.message}"`) : null,
+    timeline(e),
     h('div', { class: 'row' },
       actionsFor(e).map(([action, label, cls]) => h('button', { class: `btn btn-small ${cls}`, type: 'button', onclick: async () => {
-        try { await api('PATCH', `/api/exchanges/${e.id}`, { action }); load(); } catch (err) { say(msg, err.message); }
+        try { await api('PATCH', `/api/exchanges/${e.id}`, { action }); toast(DONE[action]); load(); } catch (err) { say(msg, err.message); }
       } }, label)),
       h('a', { class: 'btn btn-secondary btn-small', href: `/member?id=${otherId}` }, `View ${other.split(' ')[0]}`)),
-    e.status === 'completed' && features.mongo ? reviewForm(e, other) : null);
+    e.status === 'completed' ? (e.reviewed ? h('p', { class: 'meta' }, chip('You reviewed this swap', 'green')) : reviewForm(e, other)) : null);
 }
 
 async function load() {
   say(msg, '');
+  box.replaceChildren(...skeleton(3));
   const all = await api('GET', '/api/exchanges');
   box.replaceChildren();
   const open = (e) => e.status === 'pending' || e.status === 'accepted';

@@ -1,9 +1,10 @@
-import { api, h, $, requireLogin, renderShell, chip, empty } from '/app.js';
+import { api, h, $, requireLogin, renderShell, chip, empty, skeleton } from '/app.js';
 
 const user = await requireLogin();
 renderShell();
 $('.page-title').textContent = `Hi, ${user.display_name.split(' ')[0]}`;
 
+$('#content').replaceChildren(...skeleton(3));
 const [matches, exchanges, offers, wants] = await Promise.all([
   api('GET', '/api/matches'),
   api('GET', '/api/exchanges'),
@@ -12,6 +13,7 @@ const [matches, exchanges, offers, wants] = await Promise.all([
 ]);
 
 const box = $('#content');
+box.replaceChildren();
 const waiting = exchanges.filter((e) => e.direction === 'incoming' && e.status === 'pending').length;
 
 // 1. Nudge to complete the setup (matching needs both lists)

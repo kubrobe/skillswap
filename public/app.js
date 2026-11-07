@@ -38,10 +38,34 @@ export function h(tag, attrs = {}, ...kids) {
 export const $ = (sel, root = document) => root.querySelector(sel);
 
 // Redirect to /login when nobody is logged in; otherwise return the user.
+let currentUser = null;
 export async function requireLogin() {
   const { user } = await api('GET', '/api/me');
   if (!user) { location.href = '/login'; return new Promise(() => {}); }
+  currentUser = user;
   return user;
+}
+
+// Small message that appears at the bottom for a moment ("Request accepted").
+export function toast(text, tone = 'ok') {
+  const t = h('div', { class: `toast toast-${tone}`, role: 'status' }, text);
+  document.body.append(t);
+  requestAnimationFrame(() => t.classList.add('show'));
+  setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); }, 2600);
+}
+
+// Grey pulsing placeholders shown while data loads.
+export function skeleton(count = 3) {
+  return Array.from({ length: count }, () => h('div', { class: 'card skeleton', 'aria-hidden': 'true' },
+    h('div', { class: 'sk-line sk-title' }), h('div', { class: 'sk-line' }), h('div', { class: 'sk-line sk-short' })));
+}
+
+// "2 days ago" style time.
+export function ago(iso) {
+  const s = Math.max(1, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+  const units = [['year', 31536000], ['month', 2592000], ['day', 86400], ['hour', 3600], ['minute', 60]];
+  for (const [name, sec] of units) if (s >= sec) { const n = Math.floor(s / sec); return `${n} ${name}${n > 1 ? 's' : ''} ago`; }
+  return 'just now';
 }
 
 const ICONS = {
@@ -62,14 +86,15 @@ const TABS = [
 // Adds the top bar and the bottom tab bar around <main>.
 export function renderShell() {
   const here = location.pathname.replace(/\.html$/, '');
+  document.body.dataset.page = here;   // lets the CSS pick a layout per page
   const logout = h('button', { class: 'btn-link', type: 'button', onclick: async () => {
     await api('POST', '/api/logout'); location.href = '/';
   } }, 'Log out');
   document.body.prepend(
     h('a', { class: 'skip', href: '#main' }, 'Skip to content'),
-    h('header', { class: 'app-header' },
+    h('header', { class: 'app-header' }, h('div', { class: 'app-header-inner' },
       h('a', { class: 'brand', href: '/dashboard', 'aria-label': 'SkillSwap home' }, h('span', { class: 'brand-dot', 'aria-hidden': 'true' }), 'SkillSwap'),
-      logout));
+      h('div', { class: 'header-actions' }, currentUser ? h('a', { class: 'avatar', href: '/profile', 'aria-label': `Profile: ${currentUser.display_name}`, title: currentUser.display_name }, (currentUser.display_name || '?').trim().charAt(0).toUpperCase()) : false, window.skillswapTheme ? window.skillswapTheme.makeButton() : false, logout))));
   const nav = h('nav', { class: 'tabbar', 'aria-label': 'Main' });
   for (const [href, label, icon] of TABS) {
     const a = h('a', { href, 'aria-current': (here === href || (href === '/browse' && here === '/member')) ? 'page' : false });

@@ -30,7 +30,7 @@ Status: **not deployed yet and not tested on these services.** Deployment needs 
 ## 2. MongoDB Atlas (only if the professor requires MongoDB)
 1. mongodb.com/atlas → free M0 cluster → create a database user → Network Access: allow `0.0.0.0/0` for the demo.
 2. Copy the connection string into `.env` as `MONGODB_URI=...`, run `npm run mongo:setup` (creates 2 collections, 12,000+ documents), then `npm run mongo:queries`.
-3. Restart the server: the Insights page and reviews now use MongoDB.
+3. Restart the server: the community-activity part of the Insights page now uses MongoDB (reviews are in PostgreSQL).
 
 ## 3. Website on Render
 1. render.com → New → **Web Service** → connect your GitHub repo.
