@@ -1,0 +1,57 @@
+// SkillSwap web server (Express + PostgreSQL).
+import 'dotenv/config';
+import express from 'express';
+import cookieParser from 'cookie-parser';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { loadUser, authRoutes } from './src/auth.js';
+import { apiRoutes } from './src/api.js';
+import { HttpError } from './src/validate.js';
+
+const app = express();
+app.set('trust proxy', 1);   // behind Render's proxy, so secure cookies and client info work
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Basic browser security headers
+app.use((_req, res, next) => {
+  res.set({
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'same-origin',
+    'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; frame-ancestors 'none'",
+  });
+  next();
+});
+
+app.use(express.json({ limit: '20kb' }));
+app.use(cookieParser());
+app.use(loadUser);                        // sets req.user when logged in
+
+// Express 4 does not catch errors thrown in async routes by itself; this wrapper does.
+for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
+  const original = app[method].bind(app);
+  app[method] = (route, ...handlers) =>
+    typeof route === 'string' && handlers.length
+      ? original(route, ...handlers.map((h) => (req, res, next) => Promise.resolve(h(req, res, next)).catch(next)))
+      : original(route, ...handlers);
+}
+
+authRoutes(app);
+apiRoutes(app);
+
+app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Not found')));
+app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] }));
+
+// One place that turns errors into JSON answers
+app.use((err, _req, res, _next) => {
+  if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
+  if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'Invalid JSON' });
+  console.error(err);
+  res.status(500).json({ error: 'Something went wrong on our side' });
+});
+
+const PORT = process.env.PORT || 3000;
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(PORT, () => console.log(`SkillSwap running on http://localhost:${PORT}`));
+}
+export default app;

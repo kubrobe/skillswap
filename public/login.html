@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Log in - SkillSwap</title>
+  <meta name="theme-color" content="#f4f5fb">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="SkillSwap home"><span class="brand-dot" aria-hidden="true"></span><span>SkillSwap</span></a>
+  </header>
+  <main id="main" class="auth">
+    <h1 class="page-title">Log in</h1>
+    <p class="page-sub">Welcome back.</p>
+    <div id="msg" class="notice error hidden" role="alert"></div>
+    <form id="form" novalidate>
+      <div class="field"><label for="email">Email</label><input id="email" name="email" type="email" autocomplete="email" inputmode="email" required></div>
+      <div class="field"><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required></div>
+      <button class="btn btn-primary btn-block" type="submit">Log in</button>
+    </form>
+    <p class="auth-foot">New here? <a href="/signup">Create an account</a></p>
+  </main>
+  <script type="module" src="/js/login.js"></script>
+</body>
+</html>

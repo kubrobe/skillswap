@@ -1,0 +1,52 @@
+erDiagram
+    users ||--|| profiles : "has one"
+    users ||--o{ sessions : "logs in with"
+    users ||--o{ user_offers : "teaches"
+    users ||--o{ user_requests : "wants to learn"
+    categories ||--o{ skills : "groups"
+    skills ||--o{ user_offers : "is taught as"
+    skills ||--o{ user_requests : "is wanted as"
+    users ||--o{ exchanges : "requests (requester_id)"
+    users ||--o{ exchanges : "teaches in (provider_id)"
+    skills ||--o{ exchanges : "skill_wanted_id / skill_offered_id"
+    exchanges ||--o{ exchange_status_log : "history"
+    users ||--o{ exchange_status_log : "changed_by"
+
+    users { int id PK
+            string email UK
+            string password_hash
+            timestamptz created_at }
+    profiles { int user_id PK,FK
+               string display_name
+               string city
+               string bio }
+    sessions { char token_hash PK
+               int user_id FK
+               timestamptz expires_at }
+    categories { int id PK
+                 string name UK }
+    skills { int id PK
+             int category_id FK
+             string name UK }
+    user_offers { int id PK
+                  int user_id FK
+                  int skill_id FK
+                  string level
+                  string description }
+    user_requests { int id PK
+                    int user_id FK
+                    int skill_id FK
+                    string description }
+    exchanges { int id PK
+                int requester_id FK
+                int provider_id FK
+                int skill_wanted_id FK
+                int skill_offered_id FK
+                string message
+                string status
+                timestamptz created_at }
+    exchange_status_log { int id PK
+                          int exchange_id FK
+                          string status
+                          int changed_by FK
+                          timestamptz changed_at }

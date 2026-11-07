@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SkillSwap - Trade Skills, Not Bills</title>
+  <meta name="description" content="SkillSwap is a place to offer a skill you have and learn one you need, by exchanging with other members.">
+  <meta name="theme-color" content="#f4f5fb">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="SkillSwap home">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+        <defs>
+          <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#2f6bff"/><stop offset="1" stop-color="#7c3aed"/>
+          </linearGradient>
+        </defs>
+        <rect width="32" height="32" rx="9" fill="url(#g)"/>
+        <path d="M9 12h11l-3-3M23 20H12l3 3" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span>SkillSwap</span>
+    </a>
+    <a class="btn btn-login" href="/login">Log in</a>
+  </header>
+
+  <main id="main">
+    <section class="hero">
+      <p class="eyebrow">Peer-to-peer skill exchange</p>
+      <h1>Trade Skills,<br><span class="grad">Not Bills</span></h1>
+      <p class="lead">Offer something you're good at. Ask for something you want to learn. Swap with other members.</p>
+
+      <div class="cta">
+        <a class="btn btn-primary" href="/signup">Create your account</a>
+        <a class="btn btn-secondary" href="#how">Learn more</a>
+      </div>
+
+      <figure class="glass swap" aria-label="Example of a skill swap">
+        <figcaption class="swap-label">Example swap</figcaption>
+        <div class="swap-row">
+          <div class="swap-side">
+            <span class="swap-kind">Can teach</span>
+            <span class="chip chip-blue">Python basics</span>
+          </div>
+          <svg class="swap-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 9h13l-3.5-3.5M19 15H6l3.5 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <div class="swap-side">
+            <span class="swap-kind">Wants to learn</span>
+            <span class="chip chip-violet">IELTS writing</span>
+          </div>
+        </div>
+      </figure>
+    </section>
+
+    <section id="how" class="how" aria-labelledby="how-title">
+      <h2 id="how-title">How it works</h2>
+      <ol class="steps">
+        <li class="glass"><span class="step-n">1</span><div><h3>Add your skills</h3><p>List what you can teach and what you want to learn.</p></div></li>
+        <li class="glass"><span class="step-n">2</span><div><h3>Get matched</h3><p>We compare both lists and show members who fit, with fair two-way swaps first.</p></div></li>
+        <li class="glass"><span class="step-n">3</span><div><h3>Send a swap request</h3><p>Offer one of your skills for theirs. They accept or decline.</p></div></li>
+      </ol>
+      <a class="btn btn-primary how-cta" href="/signup">Create your account</a>
+    </section>
+  </main>
+</body>
+</html>

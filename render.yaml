@@ -1,0 +1,18 @@
+# Render "Blueprint": describes the web service. Secrets are NOT stored here; you enter them in the Render dashboard.
+services:
+  - type: web
+    name: skillswap
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/stats/popular-skills
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false        # paste your Supabase connection string in the dashboard
+      - key: DB_SSL_CA
+        sync: false        # only if needed (see docs/DEPLOY.md)
+      - key: MONGODB_URI
+        sync: false        # optional: your Atlas connection string

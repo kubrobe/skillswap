@@ -1,0 +1,30 @@
+{
+  "name": "skillswap",
+  "version": "0.1.0",
+  "description": "SkillSwap - course project: exchange practical skills",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "db:reset": "node db/seed.js",
+    "test": "node --test tests/api.test.js tests/mongo-pipelines.test.js",
+    "db:bigdata": "node db/measure_big_data.js",
+    "mongo:setup": "node db/mongo_setup.js",
+    "mongo:queries": "node db/mongo_queries.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^18.0.9",
+    "express": "^4.21.2",
+    "mongodb": "^7.8.0",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "mingo": "^7.2.7"
+  }
+}

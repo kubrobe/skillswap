@@ -1,0 +1,83 @@
+{
+  "measured_at": "2026-11-06T11:22:18.794Z",
+  "rows": 500000,
+  "repeats_per_query": 5,
+  "before": {
+    "Q1 count one skill, last 7 days": {
+      "median_ms": 22.1,
+      "runs_ms": [
+        22.1,
+        20.38,
+        19.88,
+        25.32,
+        23.91
+      ],
+      "plan": "Aggregate > Gather > Aggregate > Seq Scan"
+    },
+    "Q2 top searched skills, last 7 days": {
+      "median_ms": 38.04,
+      "runs_ms": [
+        40.12,
+        38.04,
+        39.72,
+        36.83,
+        37.31
+      ],
+      "plan": "Limit > Sort > Aggregate > Gather Merge > Sort > Aggregate > Seq Scan"
+    },
+    "Q3 one skill, one day": {
+      "median_ms": 22.62,
+      "runs_ms": [
+        25.8,
+        24.45,
+        21.19,
+        22.62,
+        21.28
+      ],
+      "plan": "Aggregate > Gather > Aggregate > Seq Scan"
+    }
+  },
+  "after": {
+    "Q1 count one skill, last 7 days": {
+      "median_ms": 1.88,
+      "runs_ms": [
+        2.61,
+        2.25,
+        1.88,
+        1.75,
+        1.63
+      ],
+      "plan": "Aggregate > Bitmap Heap Scan > Bitmap Index Scan"
+    },
+    "Q2 top searched skills, last 7 days": {
+      "median_ms": 42.48,
+      "runs_ms": [
+        48.96,
+        52.02,
+        41.88,
+        40.31,
+        42.48
+      ],
+      "plan": "Limit > Sort > Aggregate > Gather Merge > Sort > Aggregate > Seq Scan"
+    },
+    "Q3 one skill, one day": {
+      "median_ms": 0.31,
+      "runs_ms": [
+        0.38,
+        0.31,
+        0.43,
+        0.31,
+        0.31
+      ],
+      "plan": "Aggregate > Bitmap Heap Scan > Bitmap Index Scan"
+    }
+  },
+  "insert_100k_ms": {
+    "without_index": 113,
+    "with_index": 219
+  },
+  "sizes": {
+    "table": "38 MB",
+    "index": "15 MB"
+  }
+}
