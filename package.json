@@ -8,7 +8,7 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "db:reset": "node db/seed.js",
-    "test": "node --test tests/api.test.js tests/mongo-pipelines.test.js",
+    "test": "node --test tests/api.test.js tests/collab.test.js tests/mongo-pipelines.test.js",
     "db:migrate": "node db/migrate.js",
     "db:bigdata": "node db/measure_big_data.js",
     "mongo:setup": "node db/mongo_setup.js",

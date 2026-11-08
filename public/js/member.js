@@ -1,4 +1,4 @@
-import { api, h, $, requireLogin, renderShell, chip, empty, say, ago } from '/app.js';
+import { api, h, $, requireLogin, renderShell, chip, empty, say, ago, tier } from '/app.js';
 
 const me = await requireLogin();
 renderShell();
@@ -20,7 +20,7 @@ if (member.bio) box.append(h('p', {}, member.bio));
 box.append(h('h2', {}, 'Can teach'));
 if (!member.offers.length) box.append(empty('Nothing listed yet.'));
 for (const o of member.offers) {
-  box.append(h('div', { class: 'card' }, h('h3', {}, o.skill), h('p', { class: 'meta' }, `Level: ${o.level}`), o.description ? h('p', {}, o.description) : null));
+  box.append(h('div', { class: 'card' }, h('h3', {}, o.skill), h('div', { class: 'row' }, tier(o.level)), o.description ? h('p', {}, o.description) : null));
 }
 // Reviews come from the PostgreSQL reviews table
 const rv = await api('GET', `/api/members/${id}/reviews`);
@@ -30,6 +30,22 @@ if (rv.enabled) {
   else {
     box.append(h('div', { class: 'row' }, chip(`★ ${rv.average} / 5 average`, 'green'), chip(`${rv.count} review${rv.count > 1 ? 's' : ''}`, 'gray')));
     for (const r of rv.latest) box.append(h('div', { class: 'card' }, h('h3', {}, h('span', { class: 'stars', 'aria-label': `${r.rating} out of 5` }, `${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)}`), `  ${r.skill}`), r.comment ? h('p', {}, r.comment) : null, h('p', { class: 'meta' }, `${r.reviewer.split(' ')[0]} · ${ago(r.created_at)}`)));
+  }
+}
+
+// Weekly availability and the time when we are both free (shown in MY time zone)
+const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const av = await api('GET', `/api/members/${id}/availability`);
+box.append(h('h2', {}, 'Availability'));
+if (!av.slots.length) box.append(empty('No availability shared yet.'));
+else {
+  box.append(h('div', { class: 'row' }, av.slots.map((s) => chip(`${DAYS[s.weekday]} ${s.start}\u2013${s.end}`, 'blue'))), h('p', { class: 'meta' }, `Times in ${av.time_zone.replace('_', ' ')}`));
+  if (id !== me.id) {
+    box.append(h('h3', {}, 'Free at the same time'));
+    box.append(av.shared.length
+      ? h('div', { class: 'row' }, av.shared.map((s) => chip(`${DAYS[s.weekday]} ${s.start}\u2013${s.end}`, 'green')))
+      : h('p', { class: 'meta' }, 'No overlap yet. Ask for a swap and agree on a time in the chat.'));
+    if (av.shared.length) box.append(h('p', { class: 'meta' }, `Times in your time zone (${av.my_time_zone.replace('_', ' ')})`));
   }
 }
 

@@ -1,4 +1,4 @@
-import { api, h, $, requireLogin, renderShell, chip, empty, skeleton } from '/app.js';
+import { api, h, $, requireLogin, renderShell, chip, empty, skeleton, tier } from '/app.js';
 
 await requireLogin();
 renderShell();
@@ -33,7 +33,7 @@ async function search() {
     results.append(h('a', { class: 'card card-link', href: `/member?id=${m.id}` },
       h('h3', {}, m.display_name),
       h('p', { class: 'meta' }, m.city || 'City not set'),
-      h('div', { class: 'row' }, m.offers.length ? m.offers.map((s) => chip(s.name)) : h('span', { class: 'meta' }, 'No skills listed yet'))));
+      h('div', { class: 'row' }, m.offers.length ? m.offers.map((s) => h('span', { class: `chip chip-blue skill-chip lvl-${s.level}`, title: `${s.level}` }, s.name)) : h('span', { class: 'meta' }, 'No skills listed yet'))));
   }
 }
 q.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(search, 250); });  // wait until typing pauses

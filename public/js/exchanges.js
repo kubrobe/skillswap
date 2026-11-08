@@ -48,7 +48,7 @@ function card(e) {
   const other = incoming ? e.requester_name : e.provider_name;
   const otherId = incoming ? e.requester_id : e.provider_id;
   return h('div', { class: 'card' },
-    h('div', { class: 'row' }, chip(e.status, TONE[e.status])),
+    h('div', { class: 'row card-top' }, chip(e.status, TONE[e.status]), e.status === 'completed' && e.reviewed ? h('span', { class: 'reviewed-tag', title: 'You reviewed this swap' }, '\u2713 Reviewed') : null),
     h('h3', {}, incoming ? `${other} wants to swap with you` : `Your request to ${other}`),
     h('p', {}, incoming
       ? `They want to learn ${e.skill_wanted} and can teach you ${e.skill_offered}.`
@@ -59,8 +59,10 @@ function card(e) {
       actionsFor(e).map(([action, label, cls]) => h('button', { class: `btn btn-small ${cls}`, type: 'button', onclick: async () => {
         try { await api('PATCH', `/api/exchanges/${e.id}`, { action }); toast(DONE[action]); load(); } catch (err) { say(msg, err.message); }
       } }, label)),
+      e.status === 'accepted' || e.status === 'completed' ? h('a', { class: 'btn btn-secondary btn-small', href: `/chat?id=${e.id}` }, 'Chat') : null,
+      e.status === 'accepted' || e.status === 'completed' ? h('a', { class: 'btn btn-secondary btn-small', href: `/workspace?id=${e.id}` }, 'Workspace') : null,
       h('a', { class: 'btn btn-secondary btn-small', href: `/member?id=${otherId}` }, `View ${other.split(' ')[0]}`)),
-    e.status === 'completed' ? (e.reviewed ? h('p', { class: 'meta' }, chip('You reviewed this swap', 'green')) : reviewForm(e, other)) : null);
+    e.status === 'completed' && !e.reviewed ? reviewForm(e, other) : null);
 }
 
 async function load() {
@@ -74,6 +76,7 @@ async function load() {
     ['Sent by you', all.filter((e) => e.direction === 'outgoing' && open(e))],
     ['Finished', all.filter((e) => !open(e))],
   ];
+  if (all.some((x) => x.status === 'accepted' || x.status === 'completed')) box.append(h('a', { class: 'btn btn-secondary btn-small', href: '/messages' }, 'All messages'));
   if (!all.length) box.append(empty('No swap requests yet. Find someone on the Browse tab.'));
   for (const [title, rows] of groups) {
     if (!rows.length) continue;

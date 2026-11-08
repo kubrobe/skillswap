@@ -3,6 +3,8 @@ import { query, withTransaction } from './db.js';
 import { requireAuth } from './auth.js';
 import { HttpError, cleanChoice, cleanId, cleanText } from './validate.js';
 import { mongo, mongoEnabled } from './mongo.js';
+import { notify } from './notify.js';
+import { collabRoutes } from './collab.js';
 import * as P from './mongo-pipelines.js';
 
 const LEVELS = ['beginner', 'intermediate', 'advanced'];
@@ -206,6 +208,7 @@ export function apiRoutes(app) {
           `INSERT INTO exchanges (requester_id, provider_id, skill_wanted_id, skill_offered_id, message)
            VALUES ($1,$2,$3,$4,$5) RETURNING id`, [req.user.id, providerId, wanted, offered, message]);
         await db.query('INSERT INTO exchange_status_log (exchange_id, status, changed_by) VALUES ($1,$2,$3)', [ex.rows[0].id, 'pending', req.user.id]);
+        await notify(db, providerId, 'request', `${req.user.display_name} wants to swap skills with you`, '/exchanges');
         return ex.rows[0].id;
       } catch (e) {
         if (e.code === '23505') throw new HttpError(409, 'You already sent this exact request and it is still pending');
@@ -274,6 +277,7 @@ export function apiRoutes(app) {
       if (e.code === '23505') throw new HttpError(409, 'You already reviewed this exchange');   // UNIQUE (exchange_id, reviewer_id)
       throw e;
     }
+    await notify({ query }, reviewee, 'review', `${req.user.display_name} left you a ${rating}-star review`, `/member?id=${reviewee}`);
     res.status(201).json({ ok: true });
   });
 
@@ -315,8 +319,14 @@ export function apiRoutes(app) {
       if (ex.status !== rule.from) throw new HttpError(409, `This exchange is ${ex.status}, so it cannot be ${rule.to}`);
       await db.query('UPDATE exchanges SET status = $1 WHERE id = $2', [rule.to, id]);
       await db.query('INSERT INTO exchange_status_log (exchange_id, status, changed_by) VALUES ($1,$2,$3)', [id, rule.to, req.user.id]);
+      // tell the other person (same transaction: no status change without its notification)
+      const other = isProvider ? ex.requester_id : ex.provider_id;
+      const text = { accepted: 'accepted your swap request', declined: 'declined your swap request', cancelled: 'cancelled their swap request', completed: 'marked your swap as done' }[rule.to];
+      await notify(db, other, rule.to, `${req.user.display_name} ${text}`, rule.to === 'accepted' ? `/workspace?id=${id}` : '/exchanges');
       return rule.to;
     });
     res.json({ id, status });
   });
+
+  collabRoutes(app);
 }

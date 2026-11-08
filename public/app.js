@@ -46,6 +46,12 @@ export async function requireLogin() {
   return user;
 }
 
+// Skill level as a medal: beginner = bronze, intermediate = silver, advanced = gold.
+const TIERS = { beginner: 'Bronze', intermediate: 'Silver', advanced: 'Gold' };
+export function tier(level) {
+  return h('span', { class: `tier tier-${level}`, title: `${TIERS[level] || ''} level` }, level);
+}
+
 // Small message that appears at the bottom for a moment ("Request accepted").
 export function toast(text, tone = 'ok') {
   const t = h('div', { class: `toast toast-${tone}`, role: 'status' }, text);
@@ -84,6 +90,25 @@ const TABS = [
 ];
 
 // Adds the top bar and the bottom tab bar around <main>.
+const BELL = '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>';
+// Bell with the number of unread notifications. Checked now and every 30 seconds (simple polling, no extra server).
+function makeBell() {
+  const badge = h('span', { class: 'badge hidden' });
+  const a = h('a', { class: 'bell', href: '/notifications', 'aria-label': 'Notifications' }, badge);
+  a.insertAdjacentHTML('afterbegin', `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${BELL}</svg>`);
+  const refresh = async () => {
+    try {
+      const { unread } = await api('GET', '/api/notifications/count');
+      badge.textContent = unread > 9 ? '9+' : String(unread);
+      badge.classList.toggle('hidden', unread === 0);
+      a.setAttribute('aria-label', unread ? `Notifications, ${unread} unread` : 'Notifications');
+    } catch { /* offline or logged out: ignore */ }
+  };
+  refresh();
+  setInterval(() => { if (document.visibilityState === 'visible') refresh(); }, 30000);
+  return a;
+}
+
 export function renderShell() {
   const here = location.pathname.replace(/\.html$/, '');
   document.body.dataset.page = here;   // lets the CSS pick a layout per page
@@ -94,7 +119,7 @@ export function renderShell() {
     h('a', { class: 'skip', href: '#main' }, 'Skip to content'),
     h('header', { class: 'app-header' }, h('div', { class: 'app-header-inner' },
       h('a', { class: 'brand', href: '/dashboard', 'aria-label': 'SkillSwap home' }, h('span', { class: 'brand-dot', 'aria-hidden': 'true' }), 'SkillSwap'),
-      h('div', { class: 'header-actions' }, currentUser ? h('a', { class: 'avatar', href: '/profile', 'aria-label': `Profile: ${currentUser.display_name}`, title: currentUser.display_name }, (currentUser.display_name || '?').trim().charAt(0).toUpperCase()) : false, window.skillswapTheme ? window.skillswapTheme.makeButton() : false, logout))));
+      h('div', { class: 'header-actions' }, makeBell(), currentUser ? h('a', { class: 'avatar', href: '/profile', 'aria-label': `Profile: ${currentUser.display_name}`, title: currentUser.display_name }, (currentUser.display_name || '?').trim().charAt(0).toUpperCase()) : false, window.skillswapTheme ? window.skillswapTheme.makeButton() : false, logout))));
   const nav = h('nav', { class: 'tabbar', 'aria-label': 'Main' });
   for (const [href, label, icon] of TABS) {
     const a = h('a', { href, 'aria-current': (here === href || (href === '/browse' && here === '/member')) ? 'page' : false });

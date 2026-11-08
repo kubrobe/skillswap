@@ -94,3 +94,9 @@ Transactions (BEGIN/COMMIT/ROLLBACK) are used in: registration (user + profile),
 - Swap history on the Swaps page comes from `exchange_status_log` (written in the same transaction as every status change).
 - Day/night mode toggle (saved per browser). Loading placeholders, toast messages and a profile avatar in the header.
 - Existing database (e.g. Supabase): run `npm run db:migrate` once to add the `reviews` table without losing data. A fresh `npm run db:reset` also creates it and adds 3 demo swaps with reviews.
+
+## Update: chat, notifications, learning workspace, availability
+- New tables: `messages`, `notifications`, `workspaces`, `milestones`, `availability` (+ `profiles.time_zone`). See `docs/COLLAB_DESIGN.md` for the design and the viva questions.
+- Pages: `/notifications` (bell in the header), `/messages`, `/chat?id=`, `/workspace?id=`; availability is edited on `/profile` and shown on member pages.
+- Existing database (e.g. Supabase): run `npm run db:migrate` once. It now applies both `db/05_reviews.sql` and `db/06_collab.sql`, keeps all data, and is safe to run twice.
+- Tests: `npm test` now has 23 API/unit tests plus the MongoDB pipeline tests.

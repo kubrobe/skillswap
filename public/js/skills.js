@@ -1,4 +1,4 @@
-import { api, h, $, requireLogin, renderShell, chip, empty, say, skillSelect } from '/app.js';
+import { api, h, $, requireLogin, renderShell, chip, empty, say, skillSelect, tier } from '/app.js';
 
 await requireLogin();
 renderShell();
@@ -26,13 +26,13 @@ function section({ title, path, withLevel, addLabel }) {
     list.replaceChildren();
     if (!rows.length) list.append(empty('Nothing here yet.'));
     for (const r of rows) {
-      list.append(h('div', { class: 'card' },
-        h('h3', {}, r.skill),
-        h('div', { class: 'row' }, r.level ? chip(r.level, 'gray') : null),
-        r.description ? h('p', {}, r.description) : null,
-        h('button', { class: 'btn btn-danger btn-small', type: 'button', 'aria-label': `Remove ${r.skill}`, onclick: async () => {
+      list.append(h('div', { class: 'card has-remove' },
+        h('button', { class: 'card-remove', type: 'button', title: 'Remove', 'aria-label': `Remove ${r.skill}`, onclick: async () => {
           await api('DELETE', `/api/me/${path}/${r.id}`); load();
-        } }, 'Remove')));
+        } }, '\u00D7'),
+        h('h3', {}, r.skill),
+        r.level ? h('div', { class: 'row' }, tier(r.level)) : null,
+        r.description ? h('p', {}, r.description) : null));
     }
   }
 
