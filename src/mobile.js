@@ -13,6 +13,7 @@ import { createSessionToken, deleteSession, requireAuth, sessionToken } from './
 import { HttpError, cleanEmail, cleanPassword, cleanText, cleanId } from './validate.js';
 import { openStream, broadcastChanged, notify, notifyAllExcept, sendCredit, broadcastActivity } from './live.js';
 import { aiPlan, templatePlan, dayName } from './plan.js';
+import { understand, rankOffers, aiMatch } from './matchmaker.js';
 import { mobileSchemaReady } from './migrations.js';
 
 // Live messages are sent AFTER the answer; a problem there must never break the request.
@@ -255,6 +256,41 @@ export function mobileRoutes(app) {
       tutorPriceUzs: price, savedUzs: lessons * price,
       assumption: `Estimate: 1 lesson = 1 hour, and a private tutor costs about ${price.toLocaleString('en-US')} UZS per hour.`,
       weekly: weekly.rows, topSkills: top.rows,
+    });
+  });
+
+  // AI matchmaker: "I want to learn guitar on weekends" (spoken or typed, English / Uzbek / Russian)
+  // -> the 3 best lessons with a reason each. Claude when ANTHROPIC_API_KEY is set, keywords otherwise.
+  app.post('/api/mobile/match', requireAuth, async (req, res) => {
+    const text = cleanText(req.body.text, { max: 300, field: 'text' });
+    if (!text) throw new HttpError(400, 'Say or type what you want to learn');
+    const lang = ['en', 'uz', 'ru'].includes(req.body.lang) ? req.body.lang : 'en';
+    const offers = (await query(
+      `SELECT o.id AS "offerId", s.name AS skill, c.name AS category, split_part(p.display_name, ' ', 1) AS teacher,
+              o.level, COALESCE(r.avg, 0)::float AS rating, COALESCE(r.cnt, 0)::int AS reviews,
+              sl.days, sl.hours, tw.name AS "theyWant"
+         FROM user_offers o
+         JOIN skills s ON s.id = o.skill_id
+         JOIN categories c ON c.id = s.category_id
+         JOIN profiles p ON p.user_id = o.user_id
+         JOIN LATERAL (SELECT array_agg(weekday::int ORDER BY weekday, hour) AS days,
+                              array_agg(hour::int ORDER BY weekday, hour) AS hours
+                         FROM offer_slots WHERE offer_id = o.id AND NOT is_booked) sl ON sl.days IS NOT NULL
+         LEFT JOIN LATERAL (SELECT round(avg(rv.rating)::numeric, 1) AS avg, count(*) AS cnt
+                              FROM slot_reviews rv JOIN slot_bookings b ON b.id = rv.booking_id
+                             WHERE b.offer_id = o.id) r ON true
+         LEFT JOIN LATERAL (SELECT sk.name FROM user_requests rq
+                              JOIN user_offers mine ON mine.user_id = $1 AND mine.skill_id = rq.skill_id
+                              JOIN skills sk ON sk.id = rq.skill_id
+                             WHERE rq.user_id = o.user_id LIMIT 1) tw ON true
+        WHERE o.user_id <> $1`, [req.user.id])).rows;
+    const ai = await aiMatch({ text, lang, offers });
+    if (ai) return res.json({ source: 'ai', understood: ai.understood, picks: ai.picks });
+    const wish = understand(text);
+    res.json({
+      source: 'smart',
+      understood: [...wish.skills, ...wish.categories, wish.time].filter(Boolean).join(', '),
+      picks: rankOffers(offers, wish, lang),
     });
   });
 

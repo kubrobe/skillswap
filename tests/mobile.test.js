@@ -334,6 +334,24 @@ test('galaxy: login needed, first names only, and a new lesson adds an edge from
   assert.equal(me.learned, 1);
 });
 
+test('matchmaker: understands English, Uzbek and Russian and explains each pick', async () => {
+  const me = await newPhoneUser();
+  const sync = (await call('GET', '/sync', me.token)).body;
+  const guitar = new Set(sync.offers.filter((o) => sync.skills.find((s) => s.id === o.skillId)?.name === 'Guitar').map((o) => o.id));
+  assert.ok(guitar.size > 0, 'demo data has a guitar lesson');
+  for (const [text, lang] of [['I want to learn guitar on weekends', 'en'], ['gitara chalishni oʻrganmoqchiman', 'uz'], ['хочу научиться играть на гитаре', 'ru']]) {
+    const r = await call('POST', '/match', me.token, { text, lang });
+    assert.equal(r.status, 200, text);
+    assert.equal(r.body.source, 'smart');
+    assert.ok(guitar.has(r.body.picks[0].offerId), `guitar first for: ${text}`);
+    assert.ok(r.body.picks[0].reason.length > 5);
+  }
+  const uz = await call('POST', '/match', me.token, { text: 'gitara', lang: 'uz' });
+  assert.match(uz.body.picks[0].reason, /oʻrgatadi/);
+  assert.equal((await call('POST', '/match', me.token, { text: '   ' })).status, 400);
+  assert.equal((await call('POST', '/match', null, { text: 'guitar' })).status, 401);
+});
+
 test('logout deletes the session on the server', async () => {
   const u = await newPhoneUser();
   assert.equal((await call('POST', '/logout', u.token)).status, 200);
