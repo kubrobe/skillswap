@@ -421,6 +421,28 @@ test('telegram bot: link with a one-time code, booking alerts, 1-hour reminder, 
   }
 });
 
+test('achievements: badges unlock from real lessons, and the weekly leaderboard counts check-ins', async () => {
+  const { teacher, slots } = await teacherWithSlots();
+  const learner = await newPhoneUser();
+  const fresh = (await call('GET', '/achievements', teacher.token)).body;
+  assert.equal(fresh.badges.length, 8);
+  assert.ok(fresh.badges.every((b) => b.progress === 0), 'a new member starts with nothing');
+  assert.ok(fresh.allTime.length > 0, 'sample history fills the all-time board');
+  const b = (await call('POST', '/bookings', learner.token, { slotId: slots[0].id })).body.bookingId;
+  assert.equal((await finish(b, learner.token)).status, 200);
+  assert.equal((await call('POST', `/bookings/${b}/review`, learner.token, { rating: 5, comment: 'Great' })).status, 201);
+  const t = (await call('GET', '/achievements', teacher.token)).body;
+  const got = (id) => t.badges.find((x) => x.id === id);
+  assert.equal(got('first_teach').progress, 1);
+  assert.equal(got('five_star').progress, 1);
+  assert.equal(got('mentor').progress, 1);
+  assert.equal(got('mentor').goal, 5);
+  assert.ok(t.week.some((r) => r.id === teacher.user.id && r.lessons >= 1), 'on this week\'s board');
+  const l = (await call('GET', '/achievements', learner.token)).body;
+  assert.equal(l.badges.find((x) => x.id === 'first_lesson').progress, 1);
+  assert.equal((await call('GET', '/achievements', null)).status, 401);
+});
+
 test('logout deletes the session on the server', async () => {
   const u = await newPhoneUser();
   assert.equal((await call('POST', '/logout', u.token)).status, 200);

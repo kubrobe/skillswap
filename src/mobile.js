@@ -30,6 +30,23 @@ const giveWelcome = (db, userId) => db.query(
 const balanceOf = async (db, userId) =>
   (await db.query('SELECT COALESCE(SUM(amount), 0)::int AS n FROM credit_ledger WHERE user_id = $1', [userId])).rows[0].n;
 
+// Top 10 teachers by finished lessons, this week (Monday on) or all time. A lesson counts when it was checked in.
+const leaderboard = (thisWeek) => query(
+  `SELECT o.user_id AS id, split_part(p.display_name, ' ', 1) AS name, count(*)::int AS lessons,
+          COALESCE(round(avg(r.rating)::numeric, 1), 0)::float AS rating,
+          (SELECT s.emoji FROM user_offers o2 JOIN skills s ON s.id = o2.skill_id
+            WHERE o2.user_id = o.user_id ORDER BY o2.id LIMIT 1) AS emoji
+     FROM slot_bookings b
+     JOIN user_offers o ON o.id = b.offer_id
+     JOIN profiles p ON p.user_id = o.user_id
+     LEFT JOIN slot_reviews r ON r.booking_id = b.id
+    WHERE b.status = 'DONE'
+      ${thisWeek ? `AND COALESCE((SELECT c.created_at FROM credit_ledger c WHERE c.booking_id = b.id AND c.reason = 'taught' LIMIT 1),
+                         b.created_at) >= date_trunc('week', now())` : ''}
+    GROUP BY o.user_id, p.display_name
+    ORDER BY lessons DESC, rating DESC, name
+    LIMIT 10`);
+
 // Names and times of one booking, for the live messages.
 async function lessonInfo(bookingId) {
   const r = await query(
@@ -257,6 +274,49 @@ export function mobileRoutes(app) {
       tutorPriceUzs: price, savedUzs: lessons * price,
       assumption: `Estimate: 1 lesson = 1 hour, and a private tutor costs about ${price.toLocaleString('en-US')} UZS per hour.`,
       weekly: weekly.rows, topSkills: top.rows,
+    });
+  });
+
+  // Badges and leaderboard. Badge ids are fixed; the app shows their names in the user's language.
+  app.get('/api/mobile/achievements', requireAuth, async (req, res) => {
+    const me = req.user.id;
+    const [stats, week, allTime] = await Promise.all([
+      query(
+        `SELECT
+           (SELECT count(*) FROM slot_bookings b JOIN user_offers o ON o.id = b.offer_id
+             WHERE o.user_id = $1 AND b.status = 'DONE')::int AS taught,
+           (SELECT count(*) FROM slot_bookings WHERE learner_id = $1 AND status = 'DONE')::int AS learned,
+           (SELECT count(DISTINCT o.skill_id) FROM slot_bookings b JOIN user_offers o ON o.id = b.offer_id
+             WHERE b.learner_id = $1 AND b.status = 'DONE')::int AS skills_learned,
+           (SELECT count(*) FROM slot_reviews r JOIN slot_bookings b ON b.id = r.booking_id JOIN user_offers o ON o.id = b.offer_id
+             WHERE o.user_id = $1 AND r.rating = 5)::int AS five_stars,
+           (SELECT COALESCE(avg(r.rating), 0) FROM slot_reviews r JOIN slot_bookings b ON b.id = r.booking_id
+              JOIN user_offers o ON o.id = b.offer_id WHERE o.user_id = $1)::float AS avg_rating,
+           (SELECT count(*) FROM slot_reviews r JOIN slot_bookings b ON b.id = r.booking_id
+             WHERE b.learner_id = $1)::int AS reviews_written,
+           EXISTS (SELECT 1 FROM slot_bookings a JOIN user_offers ao ON ao.id = a.offer_id
+                     JOIN slot_bookings b ON b.learner_id = ao.user_id
+                     JOIN user_offers bo ON bo.id = b.offer_id AND bo.user_id = a.learner_id
+                    WHERE ao.user_id = $1 AND a.status <> 'CANCELLED' AND b.status <> 'CANCELLED') AS swapped`, [me]),
+      leaderboard(true),
+      leaderboard(false),
+    ]);
+    const s = stats.rows[0];
+    const badge = (id, progress, goal) => ({ id, progress: Math.min(progress, goal), goal });
+    res.json({
+      badges: [
+        badge('first_lesson', s.learned, 1),
+        badge('first_teach', s.taught, 1),
+        badge('mentor', s.taught, 5),
+        badge('five_star', s.five_stars, 1),
+        badge('trusted', s.taught >= 2 && s.avg_rating >= 4.5 ? 1 : 0, 1),
+        badge('explorer', s.skills_learned, 3),
+        badge('perfect_swap', s.swapped ? 1 : 0, 1),
+        badge('critic', s.reviews_written, 3),
+      ],
+      week: week.rows,
+      allTime: allTime.rows,
+      me,
     });
   });
 

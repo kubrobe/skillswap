@@ -18,6 +18,7 @@ same PostgreSQL database on Supabase. An account made on the website works in th
 | GET  | `/api/mobile/impact` | public community numbers for the Impact screen (no personal data) |
 | GET  | `/api/mobile/galaxy` | Skill Galaxy: people (first names) and lessons from teacher to learner, app + website |
 | POST | `/api/mobile/match` | AI matchmaker: `{text, lang}` → 3 best lessons with a reason each (AI or keyword fallback) |
+| GET  | `/api/mobile/achievements` | my 8 badges (progress / goal) and the top-10 teachers this week and all time |
 | GET  | `/api/mobile/telegram` | is the bot set up, is my Telegram linked |
 | POST | `/api/mobile/telegram/link` | a one-time `t.me/<bot>?start=<code>` link (15 minutes) |
 | POST | `/api/mobile/telegram/unlink` | stop Telegram messages |
