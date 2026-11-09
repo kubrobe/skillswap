@@ -117,6 +117,7 @@ for (const [email, slots] of [
 await run('07_mobile.sql');
 await run('08_hackathon.sql');
 await run('09_sample_data.sql');
+await run('10_checkin.sql');
 
 const counts = await pool.query(`SELECT
   (SELECT count(*) FROM users) users, (SELECT count(*) FROM skills) skills,

@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 // JSON API for the SkillSwap Android app.
 //
 // The website and the app share ONE PostgreSQL database and ONE sessions table.
@@ -121,10 +122,22 @@ async function snapshot(userId) {
     query(`SELECT s.id, s.name, c.name AS category, s.emoji
              FROM skills s JOIN categories c ON c.id = s.category_id
             ORDER BY s.name`),
-    query(`SELECT o.id, o.user_id AS "teacherId", o.skill_id AS "skillId", o.level, o.description,
+    // "trusted" = the teacher finished at least 2 lessons (across all their offers)
+    // with an average rating of 4.5 or more. Earned from real data, it cannot be bought.
+    query(`WITH teacher AS (
+             SELECT o.user_id,
+                    COUNT(b.id) FILTER (WHERE b.status = 'DONE') AS done,
+                    AVG(r.rating) AS avg_rating
+               FROM user_offers o
+               LEFT JOIN slot_bookings b ON b.offer_id = o.id
+               LEFT JOIN slot_reviews  r ON r.booking_id = b.id
+              GROUP BY o.user_id)
+           SELECT o.id, o.user_id AS "teacherId", o.skill_id AS "skillId", o.level, o.description,
                   COALESCE(ROUND(AVG(r.rating)::numeric, 1), 0)::double precision AS rating,
-                  COUNT(r.id)::int AS "reviewCount"
+                  COUNT(r.id)::int AS "reviewCount",
+                  BOOL_OR(t.done >= 2 AND COALESCE(t.avg_rating, 0) >= 4.5) AS trusted
              FROM user_offers o
+             JOIN teacher t ON t.user_id = o.user_id
              LEFT JOIN slot_bookings b ON b.offer_id = o.id
              LEFT JOIN slot_reviews  r ON r.booking_id = b.id
             GROUP BY o.id
@@ -132,8 +145,10 @@ async function snapshot(userId) {
     query(`SELECT id, offer_id AS "offerId", weekday AS day, hour, is_booked AS "isBooked"
              FROM offer_slots ORDER BY offer_id, weekday, hour`),
     // Only MY bookings (as learner) and bookings of MY lessons (as teacher) - not other people's plans.
+    // The check-in code is sent ONLY to the teacher of the lesson; the learner must get it in person.
     query(`SELECT b.id, b.slot_id AS "slotId", b.offer_id AS "offerId", b.learner_id AS "learnerId", b.status,
-                  (EXTRACT(EPOCH FROM b.created_at) * 1000)::double precision AS "createdAt"
+                  (EXTRACT(EPOCH FROM b.created_at) * 1000)::double precision AS "createdAt",
+                  CASE WHEN o.user_id = $1 AND b.status = 'BOOKED' THEN b.checkin_code END AS "checkinCode"
              FROM slot_bookings b JOIN user_offers o ON o.id = b.offer_id
             WHERE b.learner_id = $1 OR o.user_id = $1
             ORDER BY b.id`, [userId]),
@@ -161,7 +176,7 @@ async function snapshot(userId) {
 // allowTeacher = the teacher of the lesson may also do this (only used for cancelling).
 async function myBooking(db, bookingId, userId, { allowTeacher = false } = {}) {
   const r = await db.query(
-    `SELECT b.id, b.slot_id, b.status, b.learner_id, o.user_id AS teacher_id
+    `SELECT b.id, b.slot_id, b.status, b.learner_id, b.checkin_code, o.user_id AS teacher_id
        FROM slot_bookings b JOIN user_offers o ON o.id = b.offer_id
       WHERE b.id = $1 FOR UPDATE OF b`, [bookingId]);
   const b = r.rows[0];
@@ -333,8 +348,8 @@ export function mobileRoutes(app) {
       if (taken.rowCount === 0) throw new HttpError(409, 'Sorry, this time was just booked by someone else');
 
       const b = await db.query(
-        'INSERT INTO slot_bookings (slot_id, offer_id, learner_id) VALUES ($1,$2,$3) RETURNING id',
-        [slotId, slot.offer_id, req.user.id]);
+        'INSERT INTO slot_bookings (slot_id, offer_id, learner_id, checkin_code) VALUES ($1,$2,$3,$4) RETURNING id',
+        [slotId, slot.offer_id, req.user.id, String(crypto.randomInt(0, 10000)).padStart(4, '0')]);
       await db.query("INSERT INTO credit_ledger (user_id, amount, reason, booking_id) VALUES ($1, -1, 'booked', $2)",
         [req.user.id, b.rows[0].id]);                  // 1 hour of learning costs 1 credit
       return b.rows[0].id;
@@ -372,6 +387,10 @@ export function mobileRoutes(app) {
     await withTransaction(async (db) => {
       const b = await myBooking(db, id, req.user.id);
       if (b.status !== 'BOOKED') throw new HttpError(409, 'Only a planned lesson can be marked as done');
+      // Check-in: the learner must give the teacher's secret code (scanned from the QR or typed).
+      if (String(req.body?.code ?? '').trim() !== b.checkin_code) {
+        throw new HttpError(403, 'Wrong check-in code. Ask your teacher to show the QR or the 4-digit code.');
+      }
       await db.query("UPDATE slot_bookings SET status = 'DONE' WHERE id = $1", [id]);
       // The slot is a WEEKLY time: after the lesson it is free again for the next learner.
       await db.query('UPDATE offer_slots SET is_booked = false WHERE id = $1', [b.slot_id]);

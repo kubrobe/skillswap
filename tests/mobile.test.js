@@ -22,6 +22,10 @@ async function call(method, url, token, body) {
 }
 
 const stamp = Date.now();
+const codeOf = async (bookingId) =>
+  (await pool.query('SELECT checkin_code FROM slot_bookings WHERE id = $1', [bookingId])).rows[0].checkin_code;
+const finish = async (bookingId, token) =>
+  call('POST', `/bookings/${bookingId}/complete`, token, { code: await codeOf(bookingId) });
 let n = 0;
 async function newPhoneUser() {
   const r = await call('POST', '/register', null, { fullName: `Phone ${++n}`, email: `phone${n}_${stamp}@test.uz`, password: 'password123' });
@@ -107,7 +111,7 @@ test('a lesson can be rated once, only after it is done, and the rating reaches 
   const learner = await newPhoneUser();
   const b = (await call('POST', '/bookings', learner.token, { slotId: slots[0].id })).body.bookingId;
   assert.equal((await call('POST', `/bookings/${b}/review`, learner.token, { rating: 5 })).status, 409);  // not done yet
-  assert.equal((await call('POST', `/bookings/${b}/complete`, learner.token)).status, 200);
+  assert.equal((await finish(b, learner.token)).status, 200);
   assert.equal((await call('POST', `/bookings/${b}/review`, learner.token, { rating: 9 })).status, 400);
   assert.equal((await call('POST', `/bookings/${b}/review`, learner.token, { rating: 4, comment: 'Good' })).status, 201);
   assert.equal((await call('POST', `/bookings/${b}/review`, learner.token, { rating: 5 })).status, 409);  // only once
@@ -129,7 +133,7 @@ test('finishing a lesson frees the weekly slot again', async () => {
   const { slots } = await teacherWithSlots();
   const learner = await newPhoneUser();
   const b = (await call('POST', '/bookings', learner.token, { slotId: slots[0].id })).body.bookingId;
-  assert.equal((await call('POST', `/bookings/${b}/complete`, learner.token)).status, 200);
+  assert.equal((await finish(b, learner.token)).status, 200);
   const next = await newPhoneUser();
   assert.equal((await call('POST', '/bookings', next.token, { slotId: slots[0].id })).status, 201);
 });
@@ -168,7 +172,7 @@ test('time bank: 5 welcome credits, booking costs 1, cancel refunds, finishing p
   assert.equal(await bal(learner), 5);                                   // refunded
   const b2 = (await call('POST', '/bookings', learner.token, { slotId: slots[0].id })).body.bookingId;
   const before = await bal(teacher);
-  assert.equal((await call('POST', `/bookings/${b2}/complete`, learner.token)).status, 200);
+  assert.equal((await finish(b2, learner.token)).status, 200);
   assert.equal(await bal(teacher), before + 1);                          // teacher earned
   const history = (await call('GET', '/sync', teacher.token)).body.wallet.history;
   assert.equal(history[0].reason, 'taught');
@@ -236,6 +240,33 @@ test('live events: the teacher\'s phone is told at once when someone books', asy
   assert.ok(await waitFor('event: notice'), 'notice received');
   assert.ok(text.includes('booked your'));
   ctrl.abort();
+});
+
+test('check-in: only the teacher sees the code, and a wrong code cannot finish a lesson', async () => {
+  const { teacher, slots } = await teacherWithSlots();
+  const learner = await newPhoneUser();
+  const b = (await call('POST', '/bookings', learner.token, { slotId: slots[0].id })).body.bookingId;
+  const forTeacher = (await call('GET', '/sync', teacher.token)).body.bookings.find((x) => x.id === b);
+  const forLearner = (await call('GET', '/sync', learner.token)).body.bookings.find((x) => x.id === b);
+  assert.match(forTeacher.checkinCode, /^\d{4}$/);
+  assert.equal(forLearner.checkinCode, null);
+  const wrong = forTeacher.checkinCode === '0000' ? '1111' : '0000';
+  assert.equal((await call('POST', `/bookings/${b}/complete`, learner.token, { code: wrong })).status, 403);
+  assert.equal((await call('POST', `/bookings/${b}/complete`, learner.token)).status, 403);
+  assert.equal((await call('POST', `/bookings/${b}/complete`, learner.token, { code: forTeacher.checkinCode })).status, 200);
+});
+
+test('trusted badge: 2 finished lessons with an average of 4.5+', async () => {
+  const { teacher, offerId, slots } = await teacherWithSlots();
+  const isTrusted = async () => (await call('GET', '/sync', teacher.token)).body.offers.find((o) => o.id === offerId).trusted;
+  assert.equal(await isTrusted(), false);
+  for (const slot of slots) {
+    const l = await newPhoneUser();
+    const b = (await call('POST', '/bookings', l.token, { slotId: slot.id })).body.bookingId;
+    assert.equal((await finish(b, l.token)).status, 200);
+    await call('POST', `/bookings/${b}/review`, l.token, { rating: 5 });
+  }
+  assert.equal(await isTrusted(), true);
 });
 
 test('logout deletes the session on the server', async () => {
