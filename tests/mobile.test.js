@@ -269,6 +269,35 @@ test('trusted badge: 2 finished lessons with an average of 4.5+', async () => {
   assert.equal(await isTrusted(), true);
 });
 
+test('activity feed: sync has it, and the teacher\'s phone gets a live credit event at check-in', async () => {
+  const { teacher, slots } = await teacherWithSlots();
+  const learner = await newPhoneUser();
+  const b = (await call('POST', '/bookings', learner.token, { slotId: slots[0].id })).body.bookingId;
+  const ctrl = new AbortController();
+  const res = await fetch(`${base}/events`, { headers: { Authorization: `Bearer ${teacher.token}` }, signal: ctrl.signal });
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let text = '';
+  const waitFor = async (needle) => {
+    const until = Date.now() + 5000;
+    while (!text.includes(needle) && Date.now() < until) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      text += dec.decode(value);
+    }
+    return text.includes(needle);
+  };
+  assert.ok(await waitFor('event: hello'));
+  assert.equal((await finish(b, learner.token)).status, 200);
+  assert.ok(await waitFor('event: credit'), 'credit event');
+  assert.ok(await waitFor('event: activity'), 'activity event');
+  ctrl.abort();
+  const feed = (await call('GET', '/sync', learner.token)).body.activity;
+  assert.ok(Array.isArray(feed) && feed.length > 0);
+  assert.ok(feed.some((f) => f.text.includes('taught')));
+  assert.ok(!feed.some((f) => f.text.includes(learner.user.fullName)), 'learners stay anonymous');
+});
+
 test('logout deletes the session on the server', async () => {
   const u = await newPhoneUser();
   assert.equal((await call('POST', '/logout', u.token)).status, 200);

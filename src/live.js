@@ -51,3 +51,14 @@ export function notifyAllExcept(userId, text) {
 }
 
 export const connectedCount = () => [...clients.values()].reduce((n, s) => n + s.size, 0);
+
+/** Credits changed for this person: the phone plays the flying-coin animation (+1 / -1). */
+export function sendCredit(userId, amount) {
+  for (const res of clients.get(userId) || []) send(res, 'credit', { amount });
+}
+
+/** A line for the live activity ticker on every phone, e.g. "Jasur taught Guitar · +1 🪙". */
+export function broadcastActivity(text) {
+  const item = { text, at: Date.now() };
+  for (const set of clients.values()) for (const res of set) send(res, 'activity', item);
+}

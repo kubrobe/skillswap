@@ -11,7 +11,7 @@ import bcrypt from 'bcryptjs';
 import { query, withTransaction } from './db.js';
 import { createSessionToken, deleteSession, requireAuth, sessionToken } from './auth.js';
 import { HttpError, cleanEmail, cleanPassword, cleanText, cleanId } from './validate.js';
-import { openStream, broadcastChanged, notify, notifyAllExcept } from './live.js';
+import { openStream, broadcastChanged, notify, notifyAllExcept, sendCredit, broadcastActivity } from './live.js';
 import { aiPlan, templatePlan, dayName } from './plan.js';
 import { mobileSchemaReady } from './migrations.js';
 
@@ -75,7 +75,7 @@ const publicUser = (row) => ({ id: row.id, fullName: row.display_name, email: ro
 // Everything the app needs, in one answer. The app writes it into its own SQLite copy.
 async function snapshot(userId) {
   await giveWelcome({ query }, userId);
-  const [wallet, history, wants, matches] = await Promise.all([
+  const [wallet, history, wants, matches, activity] = await Promise.all([
     balanceOf({ query }, userId),
     query(`SELECT c.amount, c.reason, s.name AS "skillName",
                   (EXTRACT(EPOCH FROM c.created_at) * 1000)::double precision AS "createdAt"
@@ -100,10 +100,28 @@ async function snapshot(userId) {
                    WHERE r.user_id = o.user_id LIMIT 1) tw ON true
             WHERE w.user_id = $1
             ORDER BY o.id`, [userId]),
+    // Live community feed. Learners stay anonymous; teachers are named (their lessons are public anyway).
+    query(`SELECT text, (EXTRACT(EPOCH FROM at) * 1000)::double precision AS at FROM (
+             SELECT 'A student booked ' || s.name || ' with ' || split_part(tp.display_name, ' ', 1) AS text, b.created_at AS at
+               FROM slot_bookings b JOIN user_offers o ON o.id = b.offer_id
+               JOIN skills s ON s.id = o.skill_id JOIN profiles tp ON tp.user_id = o.user_id
+             UNION ALL
+             SELECT split_part(tp.display_name, ' ', 1) || ' taught ' || s.name || ' · +1 🪙', c.created_at
+               FROM credit_ledger c JOIN slot_bookings b ON b.id = c.booking_id
+               JOIN user_offers o ON o.id = b.offer_id JOIN skills s ON s.id = o.skill_id
+               JOIN profiles tp ON tp.user_id = c.user_id
+              WHERE c.reason = 'taught'
+             UNION ALL
+             SELECT repeat('★', r.rating) || ' for ' || split_part(tp.display_name, ' ', 1) || '''s ' || s.name, r.created_at
+               FROM slot_reviews r JOIN slot_bookings b ON b.id = r.booking_id
+               JOIN user_offers o ON o.id = b.offer_id JOIN skills s ON s.id = o.skill_id
+               JOIN profiles tp ON tp.user_id = o.user_id
+           ) feed ORDER BY at DESC LIMIT 12`),
   ]);
   const extra = {
     wallet: { balance: wallet, history: history.rows },
     wants: wants.rows.map((r) => r.id),
+    activity: activity.rows,
     matches: matches.rows
       .sort((a, b) => (b.theyWant ? 1 : 0) - (a.theyWant ? 1 : 0))
       .slice(0, 10),
@@ -309,6 +327,7 @@ export function mobileRoutes(app) {
       later(async () => {
         const skillName = (await query('SELECT name FROM skills WHERE id = $1', [skillId])).rows[0].name;
         notifyAllExcept(req.user.id, `New lesson: ${skillName} by ${req.user.display_name.split(' ')[0]}`);
+        broadcastActivity(`New lesson: ${skillName} by ${req.user.display_name.split(' ')[0]}`);
         broadcastChanged();
       });
     } catch (e) {
@@ -358,6 +377,7 @@ export function mobileRoutes(app) {
     later(async () => {
       const i = await lessonInfo(bookingId);
       notify(i.teacher_id, `🎉 ${i.learner} booked your ${i.skill} lesson · ${i.when}`);
+      broadcastActivity(`A student booked ${i.skill} with ${i.teacher}`);
       broadcastChanged();
     });
   });
@@ -400,7 +420,9 @@ export function mobileRoutes(app) {
     res.json({ ok: true });
     later(async () => {
       const i = await lessonInfo(id);
-      notify(i.teacher_id, `🪙 ${i.learner} finished your ${i.skill} lesson. You earned 1 credit!`);
+      notify(i.teacher_id, `🪙 ${i.learner} checked in to your ${i.skill} lesson. You earned 1 credit!`);
+      sendCredit(i.teacher_id, 1);
+      broadcastActivity(`${i.teacher} taught ${i.skill} · +1 🪙`);
       broadcastChanged();
     });
   });
@@ -423,6 +445,7 @@ export function mobileRoutes(app) {
     later(async () => {
       const i = await lessonInfo(id);
       notify(i.teacher_id, `${'★'.repeat(rating)} ${i.learner} rated your ${i.skill} lesson`);
+      broadcastActivity(`${'★'.repeat(rating)} for ${i.teacher}'s ${i.skill}`);
       broadcastChanged();
     });
   });
