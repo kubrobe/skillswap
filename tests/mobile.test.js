@@ -124,6 +124,38 @@ test('profile can be edited with POST (Android) and the change is in the next sy
   assert.equal(sync.body.user.bio, 'Loves chess');
 });
 
+test('finishing a lesson frees the weekly slot again', async () => {
+  const { slots } = await teacherWithSlots();
+  const learner = await newPhoneUser();
+  const b = (await call('POST', '/bookings', learner.token, { slotId: slots[0].id })).body.bookingId;
+  assert.equal((await call('POST', `/bookings/${b}/complete`, learner.token)).status, 200);
+  const next = await newPhoneUser();
+  assert.equal((await call('POST', '/bookings', next.token, { slotId: slots[0].id })).status, 201);
+});
+
+test('the teacher can cancel a booked lesson; a stranger cannot', async () => {
+  const { teacher, slots } = await teacherWithSlots();
+  const learner = await newPhoneUser();
+  const stranger = await newPhoneUser();
+  const b = (await call('POST', '/bookings', learner.token, { slotId: slots[1].id })).body.bookingId;
+  assert.equal((await call('POST', `/bookings/${b}/cancel`, stranger.token)).status, 404);
+  assert.equal((await call('POST', `/bookings/${b}/complete`, teacher.token)).status, 404);  // only the learner finishes
+  assert.equal((await call('POST', `/bookings/${b}/cancel`, teacher.token)).status, 200);
+});
+
+test('sync is private: other people\'s bookings and e-mails are not sent', async () => {
+  const { slots } = await teacherWithSlots();
+  const learner = await newPhoneUser();
+  const outsider = await newPhoneUser();
+  const b = (await call('POST', '/bookings', learner.token, { slotId: slots[0].id })).body.bookingId;
+  const seen = (await call('GET', '/sync', outsider.token)).body;
+  assert.equal(seen.bookings.some((x) => x.id === b), false);
+  assert.equal(seen.users.some((u) => u.email === learner.user.email), false);
+  assert.ok(seen.users.find((u) => u.id === outsider.user.id).email === outsider.user.email);   // own e-mail is there
+  const mine = (await call('GET', '/sync', learner.token)).body;
+  assert.equal(mine.bookings.some((x) => x.id === b), true);
+});
+
 test('logout deletes the session on the server', async () => {
   const u = await newPhoneUser();
   assert.equal((await call('POST', '/logout', u.token)).status, 200);

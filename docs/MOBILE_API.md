@@ -21,8 +21,8 @@ same PostgreSQL database on Supabase. An account made on the website works in th
 | POST/PATCH | `/api/mobile/me` | change name and bio |
 | POST | `/api/mobile/offers` | publish a lesson: offer + its time slots in **one transaction** |
 | POST | `/api/mobile/bookings` | book a slot (transaction + `SELECT … FOR UPDATE`) |
-| POST | `/api/mobile/bookings/:id/cancel` | cancel, the slot becomes free again |
-| POST | `/api/mobile/bookings/:id/complete` | mark the lesson as done |
+| POST | `/api/mobile/bookings/:id/cancel` | learner **or teacher** cancels; the slot becomes free again |
+| POST | `/api/mobile/bookings/:id/complete` | learner marks the lesson as done; the weekly slot is free again |
 | POST | `/api/mobile/bookings/:id/review` | rate a finished lesson once (1–5) |
 
 ## New tables (db/07_mobile.sql)
@@ -40,6 +40,14 @@ published in the app also appears on the website's member pages.
 * You cannot have two lessons at the same weekday + hour.
 * Ten people pressing "Book" on one slot at the same moment → exactly one wins (tested in `tests/mobile.test.js`).
 * Only the learner can cancel / finish / rate; rating only after the lesson is done, and only once.
+
+## Privacy of /sync
+* Bookings: only my own bookings and bookings of my lessons — never other people's plans.
+* Other users: name + bio only; their e-mail is replaced by a placeholder.
+* Reviews are public, but carry only the learner's first name.
+
+## Security on the phone
+The token is encrypted with an AES-256-GCM key kept in the **Android Keystore** before it is saved.
 
 ## Offline
 The app saves the last snapshot in Room (SQLite). Without internet it shows the saved data;

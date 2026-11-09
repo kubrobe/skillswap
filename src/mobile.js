@@ -42,12 +42,15 @@ const publicUser = (row) => ({ id: row.id, fullName: row.display_name, email: ro
 // Everything the app needs, in one answer. The app writes it into its own SQLite copy.
 async function snapshot(userId) {
   const [users, skills, offers, slots, bookings, reviews] = await Promise.all([
-    // only people the app actually shows: teachers, learners and myself
-    query(`SELECT u.id, u.email, p.display_name, p.bio
+    // Only people the app shows: myself, every teacher, and the learners of MY lessons.
+    // E-mail addresses of other people are NOT sent (privacy); the phone only needs names.
+    query(`SELECT u.id, CASE WHEN u.id = $1 THEN u.email ELSE 'user' || u.id || '@hidden.skillswap' END AS email,
+                  p.display_name, p.bio
              FROM users u JOIN profiles p ON p.user_id = u.id
             WHERE u.id = $1
                OR u.id IN (SELECT user_id FROM user_offers)
-               OR u.id IN (SELECT learner_id FROM slot_bookings)
+               OR u.id IN (SELECT b.learner_id FROM slot_bookings b JOIN user_offers o ON o.id = b.offer_id
+                            WHERE o.user_id = $1)
             ORDER BY u.id`, [userId]),
     query(`SELECT s.id, s.name, c.name AS category, s.emoji
              FROM skills s JOIN categories c ON c.id = s.category_id
@@ -62,12 +65,20 @@ async function snapshot(userId) {
             ORDER BY o.id`),
     query(`SELECT id, offer_id AS "offerId", weekday AS day, hour, is_booked AS "isBooked"
              FROM offer_slots ORDER BY offer_id, weekday, hour`),
-    query(`SELECT id, slot_id AS "slotId", offer_id AS "offerId", learner_id AS "learnerId", status,
-                  (EXTRACT(EPOCH FROM created_at) * 1000)::double precision AS "createdAt"
-             FROM slot_bookings ORDER BY id`),
-    query(`SELECT id, booking_id AS "bookingId", rating, comment,
-                  (EXTRACT(EPOCH FROM created_at) * 1000)::double precision AS "createdAt"
-             FROM slot_reviews ORDER BY id`),
+    // Only MY bookings (as learner) and bookings of MY lessons (as teacher) - not other people's plans.
+    query(`SELECT b.id, b.slot_id AS "slotId", b.offer_id AS "offerId", b.learner_id AS "learnerId", b.status,
+                  (EXTRACT(EPOCH FROM b.created_at) * 1000)::double precision AS "createdAt"
+             FROM slot_bookings b JOIN user_offers o ON o.id = b.offer_id
+            WHERE b.learner_id = $1 OR o.user_id = $1
+            ORDER BY b.id`, [userId]),
+    // Reviews are public, so they come with the offer id and the learner's first name only.
+    query(`SELECT r.id, r.booking_id AS "bookingId", b.offer_id AS "offerId",
+                  split_part(p.display_name, ' ', 1) AS "learnerName", r.rating, r.comment,
+                  (EXTRACT(EPOCH FROM r.created_at) * 1000)::double precision AS "createdAt"
+             FROM slot_reviews r
+             JOIN slot_bookings b ON b.id = r.booking_id
+             JOIN profiles p      ON p.user_id = b.learner_id
+            ORDER BY r.id`),
   ]);
   return {
     users: users.rows.map(publicUser),
@@ -79,11 +90,16 @@ async function snapshot(userId) {
   };
 }
 
-// Read one booking and make sure the person asking is the learner who made it.
-async function myBooking(db, bookingId, userId) {
-  const r = await db.query('SELECT id, slot_id, status, learner_id FROM slot_bookings WHERE id = $1 FOR UPDATE', [bookingId]);
+// Read one booking (locked for this transaction) and check who is asking.
+// allowTeacher = the teacher of the lesson may also do this (only used for cancelling).
+async function myBooking(db, bookingId, userId, { allowTeacher = false } = {}) {
+  const r = await db.query(
+    `SELECT b.id, b.slot_id, b.status, b.learner_id, o.user_id AS teacher_id
+       FROM slot_bookings b JOIN user_offers o ON o.id = b.offer_id
+      WHERE b.id = $1 FOR UPDATE OF b`, [bookingId]);
   const b = r.rows[0];
-  if (!b || b.learner_id !== userId) throw new HttpError(404, 'Booking not found');
+  const allowed = b && (b.learner_id === userId || (allowTeacher && b.teacher_id === userId));
+  if (!allowed) throw new HttpError(404, 'Booking not found');
   return b;
 }
 
@@ -207,7 +223,7 @@ export function mobileRoutes(app) {
   app.post('/api/mobile/bookings/:id/cancel', requireAuth, async (req, res) => {
     const id = cleanId(req.params.id, 'bookingId');
     await withTransaction(async (db) => {
-      const b = await myBooking(db, id, req.user.id);
+      const b = await myBooking(db, id, req.user.id, { allowTeacher: true });   // learner or teacher
       if (b.status !== 'BOOKED') throw new HttpError(409, 'Only a planned lesson can be cancelled');
       await db.query("UPDATE slot_bookings SET status = 'CANCELLED' WHERE id = $1", [id]);
       await db.query('UPDATE offer_slots SET is_booked = false WHERE id = $1', [b.slot_id]);  // free the time again
@@ -221,6 +237,8 @@ export function mobileRoutes(app) {
       const b = await myBooking(db, id, req.user.id);
       if (b.status !== 'BOOKED') throw new HttpError(409, 'Only a planned lesson can be marked as done');
       await db.query("UPDATE slot_bookings SET status = 'DONE' WHERE id = $1", [id]);
+      // The slot is a WEEKLY time: after the lesson it is free again for the next learner.
+      await db.query('UPDATE offer_slots SET is_booked = false WHERE id = $1', [b.slot_id]);
     });
     res.json({ ok: true });
   });
