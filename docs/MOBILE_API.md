@@ -14,18 +14,19 @@ same PostgreSQL database on Supabase. An account made on the website works in th
 | Method | Path | What it does |
 |---|---|---|
 | GET  | `/api/mobile/health` | public check that the server and database are up |
-| GET  | `/api/mobile/events` | **live updates** (Server-Sent Events): `changed` + personal `notice` messages |
+| GET  | `/api/mobile/events` | **live updates** (Server-Sent Events): `changed`, personal `notice` and `credit` (+1), and `activity` lines for everyone |
+| GET  | `/api/mobile/impact` | public community numbers for the Impact screen (no personal data) |
 | POST | `/api/mobile/wants` | my wish list (what I want to learn) → used for perfect matches |
 | POST | `/api/mobile/bookings/:id/plan` | 60-minute lesson plan (AI if `ANTHROPIC_API_KEY` is set, otherwise a template), cached |
 | POST | `/api/mobile/register` | new account → `{token, user}` |
 | POST | `/api/mobile/login` | `{token, user}` |
 | POST | `/api/mobile/logout` | ends the session |
-| GET  | `/api/mobile/sync` | the whole snapshot: users, skills, offers, slots, bookings, reviews |
+| GET  | `/api/mobile/sync` | the whole snapshot: users, skills, offers, slots, bookings, reviews, wallet, wishes, matches, last 12 activity lines |
 | POST/PATCH | `/api/mobile/me` | change name and bio |
 | POST | `/api/mobile/offers` | publish a lesson: offer + its time slots in **one transaction** |
 | POST | `/api/mobile/bookings` | book a slot (transaction + `SELECT … FOR UPDATE`) |
 | POST | `/api/mobile/bookings/:id/cancel` | learner **or teacher** cancels; the slot becomes free again |
-| POST | `/api/mobile/bookings/:id/complete` | learner marks the lesson as done; the weekly slot is free again |
+| POST | `/api/mobile/bookings/:id/complete` | learner checks in with the teacher's 4-digit code (QR); the slot is free again, the teacher gets +1 |
 | POST | `/api/mobile/bookings/:id/review` | rate a finished lesson once (1–5) |
 
 ## New tables (db/07_mobile.sql)
@@ -52,9 +53,9 @@ published in the app also appears on the website's member pages.
 ## Security on the phone
 The token is encrypted with an AES-256-GCM key kept in the **Android Keystore** before it is saved.
 
-## Offline
-The app saves the last snapshot in Room (SQLite). Without internet it shows the saved data;
-changes need the server. Accounts created while offline stay on the phone only.
+## Always online
+Supabase (through this server) is the only source of truth. The app keeps the last snapshot in Room
+only as a cache so screens open instantly; every change goes to the server first.
 
 ## Hackathon features
 * **Time bank** (`credit_ledger`, db/08_hackathon.sql): 5 welcome credits; booking costs 1 (inside the booking
@@ -65,3 +66,12 @@ changes need the server. Accounts created while offline stay on the phone only.
   and a personal `notice` ("Bobur booked your Python lesson") to the right person. 20-second pings keep it alive.
 * **AI lesson plan** (src/plan.js): optional Claude call with a 20-second timeout; falls back to a template,
   so the demo never fails. Set `ANTHROPIC_API_KEY` (and optionally `AI_MODEL`) in Render to enable AI.
+* **Check-in** (db/10_checkin.sql): every booking gets a random 4-digit code that only the teacher sees (also as a QR).
+  The learner scans it to finish the lesson, so credits cannot be farmed without meeting.
+  Teachers with 2+ finished lessons and an average of 4.5+ get a **✓ Trusted** badge.
+* **Swipe to swap + flying coin + LIVE ticker**: `activity` events and the `activity` list in /sync feed the ticker
+  (learners stay anonymous); the `credit` event plays the +1 coin on the teacher's phone.
+* **Community impact** (`GET /impact`): members, teachers, finished lessons (app lessons + website swaps), hours,
+  credits in circulation, average rating, finished lessons per week (8 weeks) and the top skills.
+  "Money saved" is an **estimate**: finished lessons × `AVG_TUTOR_PRICE_UZS` (default 100,000 UZS per hour).
+  `db/11_impact_history.sql` adds SAMPLE finished lessons between the demo accounts so the chart has history.
