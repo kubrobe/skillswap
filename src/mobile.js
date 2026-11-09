@@ -258,6 +258,64 @@ export function mobileRoutes(app) {
     });
   });
 
+  // Skill Galaxy: who taught whom. Nodes = people (first names only), edges = lessons from teacher to learner.
+  // App lessons and website swaps both count, because both live in this one database.
+  app.get('/api/mobile/galaxy', requireAuth, async (req, res) => {
+    const edges = (await query(
+      `SELECT teacher_id AS "from", learner_id AS "to", sum(n)::int AS lessons,
+              (array_agg(emoji ORDER BY at DESC))[1] AS emoji
+         FROM (
+           SELECT o.user_id AS teacher_id, b.learner_id, 1 AS n, s.emoji, b.created_at AS at
+             FROM slot_bookings b JOIN user_offers o ON o.id = b.offer_id JOIN skills s ON s.id = o.skill_id
+            WHERE b.status <> 'CANCELLED'
+           UNION ALL   -- a website swap teaches both ways
+           SELECT e.provider_id, e.requester_id, 1, s.emoji, e.created_at
+             FROM exchanges e JOIN skills s ON s.id = e.skill_wanted_id
+            WHERE e.status IN ('accepted', 'completed')
+           UNION ALL
+           SELECT e.requester_id, e.provider_id, 1, s.emoji, e.created_at
+             FROM exchanges e JOIN skills s ON s.id = e.skill_offered_id
+            WHERE e.status IN ('accepted', 'completed')
+         ) lessons
+        WHERE teacher_id <> learner_id
+        GROUP BY teacher_id, learner_id
+        ORDER BY lessons DESC
+        LIMIT 240`)).rows;
+    // everyone in a lesson, plus teachers who are still waiting for their first learner (most active first, at most 90)
+    const active = new Map();
+    for (const e of edges) {
+      active.set(e.from, (active.get(e.from) || 0) + e.lessons);
+      active.set(e.to, (active.get(e.to) || 0) + e.lessons);
+    }
+    active.set(req.user.id, active.get(req.user.id) || 0);
+    const teachers = (await query('SELECT DISTINCT user_id FROM user_offers LIMIT 200')).rows;
+    for (const t of teachers) if (!active.has(t.user_id)) active.set(t.user_id, 0);
+    // me and the people I learned from or taught always stay in the picture
+    const me = req.user.id;
+    const mine = edges.filter((e) => e.from === me || e.to === me).flatMap((e) => [e.from, e.to]);
+    const byActivity = [...active.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id);
+    const ids = [...new Set([me, ...mine, ...byActivity])].slice(0, 90);
+    const keep = new Set(ids);
+    const people = (await query(
+      `SELECT u.id, split_part(p.display_name, ' ', 1) AS name,
+              (SELECT c.name FROM user_offers o JOIN skills s ON s.id = o.skill_id JOIN categories c ON c.id = s.category_id
+                WHERE o.user_id = u.id ORDER BY o.id LIMIT 1) AS category,
+              (SELECT s.emoji FROM user_offers o JOIN skills s ON s.id = o.skill_id
+                WHERE o.user_id = u.id ORDER BY o.id LIMIT 1) AS emoji
+         FROM users u JOIN profiles p ON p.user_id = u.id
+        WHERE u.id = ANY($1::int[])`, [ids])).rows;
+    const shown = edges.filter((e) => keep.has(e.from) && keep.has(e.to));
+    const sum = (id, side) => shown.filter((e) => e[side] === id).reduce((n, e) => n + e.lessons, 0);
+    res.json({
+      me: req.user.id,
+      nodes: people.map((p) => ({
+        id: p.id, name: p.name, category: p.category || '', emoji: p.emoji || '🎓',
+        taught: sum(p.id, 'from'), learned: sum(p.id, 'to'),
+      })),
+      edges: shown,
+    });
+  });
+
   // Live updates (Server-Sent Events). The connection stays open; see src/live.js.
   app.get('/api/mobile/events', requireAuth, (req, res) => openStream(req, res));
 

@@ -318,6 +318,22 @@ test('impact: public community numbers, 8 weeks of history, and a finished lesso
   assert.equal(after.weekly[7].lessons, i.weekly[7].lessons + 1);
 });
 
+test('galaxy: login needed, first names only, and a new lesson adds an edge from teacher to learner', async () => {
+  assert.equal((await call('GET', '/galaxy', null)).status, 401);
+  const { teacher, slots } = await teacherWithSlots();
+  const learner = await newPhoneUser();
+  const before = (await call('GET', '/galaxy', learner.token)).body;
+  assert.ok(before.nodes.some((n) => n.id === learner.user.id), 'I am always in my galaxy');
+  assert.ok(before.nodes.every((n) => !('email' in n) && !n.name.includes(' ')), 'first names only');
+  assert.ok(before.edges.length > 0, 'the sample history draws lines');
+  await call('POST', '/bookings', learner.token, { slotId: slots[0].id });
+  const after = (await call('GET', '/galaxy', learner.token)).body;
+  const edge = after.edges.find((e) => e.from === teacher.user.id && e.to === learner.user.id);
+  assert.ok(edge && edge.lessons === 1, 'new edge teacher -> learner');
+  const me = after.nodes.find((n) => n.id === learner.user.id);
+  assert.equal(me.learned, 1);
+});
+
 test('logout deletes the session on the server', async () => {
   const u = await newPhoneUser();
   assert.equal((await call('POST', '/logout', u.token)).status, 200);
