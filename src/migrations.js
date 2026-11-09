@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { pool } from './db.js';
 
 const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'db');
-export const MIGRATIONS = ['05_reviews.sql', '06_collab.sql', '07_mobile.sql', '08_hackathon.sql'];
+export const MIGRATIONS = ['05_reviews.sql', '06_collab.sql', '07_mobile.sql', '08_hackathon.sql', '09_sample_data.sql'];
 
 export async function applyMigrations() {
   for (const f of MIGRATIONS) await pool.query(fs.readFileSync(path.join(dir, f), 'utf8'));
