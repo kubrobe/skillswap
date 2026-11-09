@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { loadUser, authRoutes } from './src/auth.js';
 import { apiRoutes } from './src/api.js';
 import { mobileRoutes } from './src/mobile.js';
+import { telegramRoutes, startTelegram } from './src/telegram.js';
 import { applyMigrations } from './src/migrations.js';
 import { HttpError } from './src/validate.js';
 
@@ -39,6 +40,7 @@ for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
 }
 
 authRoutes(app);
+telegramRoutes(app);   // Telegram calls this webhook (booking alerts, reminders, /next)
 mobileRoutes(app);     // JSON API used by the Android app (before apiRoutes, which requires a login for all of /api)
 apiRoutes(app);
 
@@ -60,6 +62,9 @@ if (process.env.NODE_ENV !== 'test') {
   applyMigrations()
     .then(() => console.log('Database schema up to date'))
     .catch((e) => console.error('Database update failed:', e.message))
-    .finally(() => app.listen(PORT, () => console.log(`SkillSwap running on http://localhost:${PORT}`)));
+    .finally(() => {
+      app.listen(PORT, () => console.log(`SkillSwap running on http://localhost:${PORT}`));
+      startTelegram();
+    });
 }
 export default app;

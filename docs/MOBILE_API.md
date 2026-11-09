@@ -16,6 +16,11 @@ same PostgreSQL database on Supabase. An account made on the website works in th
 | GET  | `/api/mobile/health` | public check that the server and database are up |
 | GET  | `/api/mobile/events` | **live updates** (Server-Sent Events): `changed`, personal `notice` and `credit` (+1), and `activity` lines for everyone |
 | GET  | `/api/mobile/impact` | public community numbers for the Impact screen (no personal data) |
+| GET  | `/api/mobile/galaxy` | Skill Galaxy: people (first names) and lessons from teacher to learner, app + website |
+| POST | `/api/mobile/match` | AI matchmaker: `{text, lang}` → 3 best lessons with a reason each (AI or keyword fallback) |
+| GET  | `/api/mobile/telegram` | is the bot set up, is my Telegram linked |
+| POST | `/api/mobile/telegram/link` | a one-time `t.me/<bot>?start=<code>` link (15 minutes) |
+| POST | `/api/mobile/telegram/unlink` | stop Telegram messages |
 | POST | `/api/mobile/wants` | my wish list (what I want to learn) → used for perfect matches |
 | POST | `/api/mobile/bookings/:id/plan` | 60-minute lesson plan (AI if `ANTHROPIC_API_KEY` is set, otherwise a template), cached |
 | POST | `/api/mobile/register` | new account → `{token, user}` |
@@ -75,3 +80,9 @@ only as a cache so screens open instantly; every change goes to the server first
   credits in circulation, average rating, finished lessons per week (8 weeks) and the top skills.
   "Money saved" is an **estimate**: finished lessons × `AVG_TUTOR_PRICE_UZS` (default 100,000 UZS per hour).
   `db/11_impact_history.sql` adds SAMPLE finished lessons between the demo accounts so the chart has history.
+* **Telegram bot** (`src/telegram.js`, `db/12_telegram.sql`): every personal live notice also goes to the linked
+  Telegram chat, plus a reminder 1 hour before each weekly lesson (Tashkent time, once per week) and the commands
+  `/next`, `/credits`, `/stop`. Telegram calls `POST /telegram/webhook` (checked with a secret header).
+  **Setup:** in Telegram open @BotFather → `/newbot` → copy the token → Render → Environment →
+  `TELEGRAM_BOT_TOKEN` = the token → Save. On start the server sets its webhook itself (`RENDER_EXTERNAL_URL`).
+  Optional in @BotFather: `/setcommands` → `next - My upcoming lessons`, `credits - My credit balance`, `stop - Unlink`.

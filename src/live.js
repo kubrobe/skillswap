@@ -5,6 +5,8 @@
 // every open request, and the phones refresh at once - no need to pull every few seconds.
 // SSE is plain HTTP, so it passes through Render's proxy without extra libraries.
 
+import { telegramNotify } from './telegram.js';
+
 const clients = new Map();   // userId -> Set of open responses (a person may have 2 phones)
 
 export function openStream(req, res) {
@@ -43,6 +45,7 @@ export function broadcastChanged() {
 /** A personal message that the phone shows as a banner, e.g. "Bobur booked your lesson". */
 export function notify(userId, text) {
   for (const res of clients.get(userId) || []) send(res, 'notice', { text });
+  telegramNotify(userId, text);              // and to Telegram, if this person linked it (works with the app closed)
 }
 
 /** A message for everybody except one person (e.g. a new lesson was published). */

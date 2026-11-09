@@ -352,6 +352,75 @@ test('matchmaker: understands English, Uzbek and Russian and explains each pick'
   assert.equal((await call('POST', '/match', null, { text: 'guitar' })).status, 401);
 });
 
+test('telegram bot: link with a one-time code, booking alerts, 1-hour reminder, /next and /credits', async () => {
+  const http = await import('node:http');
+  const { sendDueReminders, _test } = await import('../src/telegram.js');
+  const sent = [];
+  const fake = http.createServer((req, res) => {          // stands in for api.telegram.org
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      sent.push({ method: req.url.split('/').pop(), ...JSON.parse(body || '{}') });
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ ok: true, result: {} }));
+    });
+  });
+  await new Promise((r) => fake.listen(0, r));
+  const before = (await call('GET', '/telegram', (await newPhoneUser()).token)).body;
+  assert.equal(before.configured, false, 'no token -> bot off, app unchanged');
+  process.env.TELEGRAM_BOT_TOKEN = 'test-token';
+  process.env.TELEGRAM_BOT_USERNAME = 'SkillSwapTestBot';
+  process.env.TELEGRAM_API_BASE = `http://localhost:${fake.address().port}`;
+  const hook = (text, chatId = 7001) => fetch(base.replace('/api/mobile', '') + '/telegram/webhook', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'X-Telegram-Bot-Api-Secret-Token': _test.webhookSecret() },
+    body: JSON.stringify({ message: { chat: { id: chatId }, text } }),
+  });
+  const waitFor = async (pred) => { for (let i = 0; i < 50 && !sent.some(pred); i++) await new Promise((r) => setTimeout(r, 20)); return sent.find(pred); };
+  try {
+    // the teacher links Telegram
+    const { teacher } = await teacherWithSlots();
+    const link = (await call('POST', '/telegram/link', teacher.token)).body.url;
+    assert.match(link, /^https:\/\/t\.me\/SkillSwapTestBot\?start=[0-9a-f]{24}$/);
+    const forged = await fetch(base.replace('/api/mobile', '') + '/telegram/webhook', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    assert.equal(forged.status, 403, 'only Telegram (with the secret) may call the webhook');
+    assert.equal((await hook(`/start ${link.split('=')[1]}`)).status, 200);
+    assert.ok(await waitFor((m) => m.chat_id === 7001 && /Connected/.test(m.text)));
+    assert.equal((await call('GET', '/telegram', teacher.token)).body.linked, true);
+    assert.ok(await waitFor(() => true) && (await hook(`/start ${link.split('=')[1]}`)).status === 200);
+    assert.ok(await waitFor((m) => /expired/.test(m.text)), 'a code works only once');
+
+    // a lesson in the next hour (Tashkent time): booking alert now, reminder from the timer
+    const t = new Date(Date.now() + 5 * 3600_000 + 60 * 60_000);   // UTC+5, one hour ahead
+    const day = ((t.getUTCDay() + 6) % 7) + 1, hour = t.getUTCHours();
+    const sync = (await call('GET', '/sync', teacher.token)).body;
+    const taken = new Set(sync.offers.filter((o) => o.teacherId === teacher.user.id).map((o) => o.skillId));
+    const skill = sync.skills.find((s) => !taken.has(s.id));
+    const pub = await call('POST', '/offers', teacher.token, { skillId: skill.id, level: 'Beginner', description: 'Soon', slots: [{ day, hour }] });
+    assert.equal(pub.status, 201);
+    const slot = (await call('GET', '/sync', teacher.token)).body.slots.find((s) => s.offerId === pub.body.offerId);
+    const learner = await newPhoneUser();
+    assert.equal((await call('POST', '/bookings', learner.token, { slotId: slot.id })).status, 201);
+    assert.ok(await waitFor((m) => m.chat_id === 7001 && /booked your/.test(m.text)), 'booking alert in Telegram');
+    assert.ok((await sendDueReminders()) >= 1);
+    assert.ok(await waitFor((m) => m.chat_id === 7001 && /In 1 hour you teach/.test(m.text)), 'reminder');
+    assert.equal(await sendDueReminders(), 0, 'reminded once per week');
+
+    await hook('/next');
+    assert.ok(await waitFor((m) => /Your lessons/.test(m.text) && m.text.includes(skill.name)));
+    await hook('/credits');
+    assert.ok(await waitFor((m) => /credit/.test(m.text) && /You have/.test(m.text)));
+    await hook('/stop');
+    assert.ok(await waitFor((m) => /Unlinked/.test(m.text)));
+    assert.equal((await call('GET', '/telegram', teacher.token)).body.linked, false);
+  } finally {
+    delete process.env.TELEGRAM_BOT_TOKEN;
+    delete process.env.TELEGRAM_BOT_USERNAME;
+    delete process.env.TELEGRAM_API_BASE;
+    fake.close();
+  }
+});
+
 test('logout deletes the session on the server', async () => {
   const u = await newPhoneUser();
   assert.equal((await call('POST', '/logout', u.token)).status, 200);

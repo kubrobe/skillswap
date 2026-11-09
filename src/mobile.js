@@ -14,6 +14,7 @@ import { HttpError, cleanEmail, cleanPassword, cleanText, cleanId } from './vali
 import { openStream, broadcastChanged, notify, notifyAllExcept, sendCredit, broadcastActivity } from './live.js';
 import { aiPlan, templatePlan, dayName } from './plan.js';
 import { understand, rankOffers, aiMatch } from './matchmaker.js';
+import { telegramAppRoutes } from './telegram.js';
 import { mobileSchemaReady } from './migrations.js';
 
 // Live messages are sent AFTER the answer; a problem there must never break the request.
@@ -258,6 +259,9 @@ export function mobileRoutes(app) {
       weekly: weekly.rows, topSkills: top.rows,
     });
   });
+
+  // Telegram bot: link / unlink / status (the bot itself is in src/telegram.js)
+  telegramAppRoutes(app, requireAuth);
 
   // AI matchmaker: "I want to learn guitar on weekends" (spoken or typed, English / Uzbek / Russian)
   // -> the 3 best lessons with a reason each. Claude when ANTHROPIC_API_KEY is set, keywords otherwise.
