@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { loadUser, authRoutes } from './src/auth.js';
 import { apiRoutes } from './src/api.js';
 import { mobileRoutes } from './src/mobile.js';
+import { applyMigrations } from './src/migrations.js';
 import { HttpError } from './src/validate.js';
 
 const app = express();
@@ -54,6 +55,11 @@ app.use((err, _req, res, _next) => {
 
 const PORT = process.env.PORT || 3000;
 if (process.env.NODE_ENV !== 'test') {
-  app.listen(PORT, () => console.log(`SkillSwap running on http://localhost:${PORT}`));
+  // Update the database first (a second or two), then start answering requests.
+  // If the update fails, the server still starts and logs why.
+  applyMigrations()
+    .then(() => console.log('Database schema up to date'))
+    .catch((e) => console.error('Database update failed:', e.message))
+    .finally(() => app.listen(PORT, () => console.log(`SkillSwap running on http://localhost:${PORT}`)));
 }
 export default app;

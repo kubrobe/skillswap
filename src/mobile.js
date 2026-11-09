@@ -12,6 +12,7 @@ import { createSessionToken, deleteSession, requireAuth, sessionToken } from './
 import { HttpError, cleanEmail, cleanPassword, cleanText, cleanId } from './validate.js';
 import { openStream, broadcastChanged, notify, notifyAllExcept } from './live.js';
 import { aiPlan, templatePlan, dayName } from './plan.js';
+import { mobileSchemaReady } from './migrations.js';
 
 // Live messages are sent AFTER the answer; a problem there must never break the request.
 const later = (work) => Promise.resolve().then(work).catch((e) => console.error('live update failed:', e.message));
@@ -172,8 +173,8 @@ async function myBooking(db, bookingId, userId, { allowTeacher = false } = {}) {
 export function mobileRoutes(app) {
   // Public "are you awake?" check. Also handy to test the deployment in a browser.
   app.get('/api/mobile/health', async (_req, res) => {
-    await query('SELECT 1');
-    res.json({ ok: true, api: 'skillswap-mobile', version: 2 });
+    const database = await mobileSchemaReady();      // also proves the database answers
+    res.json({ ok: true, api: 'skillswap-mobile', version: 3, database: database ? 'ready' : 'tables missing' });
   });
 
   // Live updates (Server-Sent Events). The connection stays open; see src/live.js.

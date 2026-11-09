@@ -50,6 +50,7 @@ test('health check is public and reaches the database', async () => {
   const r = await call('GET', '/health');
   assert.equal(r.status, 200);
   assert.equal(r.body.ok, true);
+  assert.equal(r.body.database, 'ready');
 });
 
 test('login gives a token; sync without a token is refused', async () => {
