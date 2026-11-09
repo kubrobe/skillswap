@@ -14,6 +14,9 @@ same PostgreSQL database on Supabase. An account made on the website works in th
 | Method | Path | What it does |
 |---|---|---|
 | GET  | `/api/mobile/health` | public check that the server and database are up |
+| GET  | `/api/mobile/events` | **live updates** (Server-Sent Events): `changed` + personal `notice` messages |
+| POST | `/api/mobile/wants` | my wish list (what I want to learn) → used for perfect matches |
+| POST | `/api/mobile/bookings/:id/plan` | 60-minute lesson plan (AI if `ANTHROPIC_API_KEY` is set, otherwise a template), cached |
 | POST | `/api/mobile/register` | new account → `{token, user}` |
 | POST | `/api/mobile/login` | `{token, user}` |
 | POST | `/api/mobile/logout` | ends the session |
@@ -52,3 +55,13 @@ The token is encrypted with an AES-256-GCM key kept in the **Android Keystore** 
 ## Offline
 The app saves the last snapshot in Room (SQLite). Without internet it shows the saved data;
 changes need the server. Accounts created while offline stay on the phone only.
+
+## Hackathon features
+* **Time bank** (`credit_ledger`, db/08_hackathon.sql): 5 welcome credits; booking costs 1 (inside the booking
+  transaction, with the user row locked so the last credit cannot be spent twice); cancel refunds it;
+  finishing a lesson pays the teacher 1. The balance is `SUM(amount)` — every credit is traceable.
+* **Perfect matches**: people who teach what I want; two-way swaps (they also want what I teach) come first.
+* **Live updates** (src/live.js): each phone keeps one SSE connection; the server pushes `changed` to everyone
+  and a personal `notice` ("Bobur booked your Python lesson") to the right person. 20-second pings keep it alive.
+* **AI lesson plan** (src/plan.js): optional Claude call with a 20-second timeout; falls back to a template,
+  so the demo never fails. Set `ANTHROPIC_API_KEY` (and optionally `AI_MODEL`) in Render to enable AI.

@@ -10,6 +10,37 @@ import bcrypt from 'bcryptjs';
 import { query, withTransaction } from './db.js';
 import { createSessionToken, deleteSession, requireAuth, sessionToken } from './auth.js';
 import { HttpError, cleanEmail, cleanPassword, cleanText, cleanId } from './validate.js';
+import { openStream, broadcastChanged, notify, notifyAllExcept } from './live.js';
+import { aiPlan, templatePlan, dayName } from './plan.js';
+
+// Live messages are sent AFTER the answer; a problem there must never break the request.
+const later = (work) => Promise.resolve().then(work).catch((e) => console.error('live update failed:', e.message));
+
+const WELCOME_CREDITS = 5;     // a new member can learn 5 hours before teaching anything
+
+// Gives the one-time welcome gift (website accounts get it on their first app visit).
+const giveWelcome = (db, userId) => db.query(
+  `INSERT INTO credit_ledger (user_id, amount, reason) VALUES ($1, $2, 'welcome')
+   ON CONFLICT (user_id) WHERE reason = 'welcome' DO NOTHING`, [userId, WELCOME_CREDITS]);
+
+const balanceOf = async (db, userId) =>
+  (await db.query('SELECT COALESCE(SUM(amount), 0)::int AS n FROM credit_ledger WHERE user_id = $1', [userId])).rows[0].n;
+
+// Names and times of one booking, for the live messages.
+async function lessonInfo(bookingId) {
+  const r = await query(
+    `SELECT b.learner_id, o.user_id AS teacher_id, split_part(lp.display_name, ' ', 1) AS learner,
+            split_part(tp.display_name, ' ', 1) AS teacher, s.name AS skill, os.weekday, os.hour
+       FROM slot_bookings b
+       JOIN user_offers o  ON o.id = b.offer_id
+       JOIN offer_slots os ON os.id = b.slot_id
+       JOIN skills s       ON s.id = o.skill_id
+       JOIN profiles lp    ON lp.user_id = b.learner_id
+       JOIN profiles tp    ON tp.user_id = o.user_id
+      WHERE b.id = $1`, [bookingId]);
+  const i = r.rows[0];
+  return i && { ...i, when: `${dayName(i.weekday).slice(0, 3)} ${String(i.hour).padStart(2, '0')}:00` };
+}
 
 const LEVELS = ['beginner', 'intermediate', 'advanced'];
 const toTitle = (s) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -41,6 +72,40 @@ const publicUser = (row) => ({ id: row.id, fullName: row.display_name, email: ro
 
 // Everything the app needs, in one answer. The app writes it into its own SQLite copy.
 async function snapshot(userId) {
+  await giveWelcome({ query }, userId);
+  const [wallet, history, wants, matches] = await Promise.all([
+    balanceOf({ query }, userId),
+    query(`SELECT c.amount, c.reason, s.name AS "skillName",
+                  (EXTRACT(EPOCH FROM c.created_at) * 1000)::double precision AS "createdAt"
+             FROM credit_ledger c
+             LEFT JOIN slot_bookings b ON b.id = c.booking_id
+             LEFT JOIN user_offers o   ON o.id = b.offer_id
+             LEFT JOIN skills s        ON s.id = o.skill_id
+            WHERE c.user_id = $1 ORDER BY c.created_at DESC, c.id DESC LIMIT 15`, [userId]),
+    query('SELECT skill_id AS id FROM user_requests WHERE user_id = $1', [userId]),
+    // People who teach what I want. "theyWant" is filled when they ALSO want something I teach:
+    // that is a perfect two-way swap, shown first.
+    query(`SELECT DISTINCT ON (o.id) o.id AS "offerId", p.display_name AS "teacherName",
+                  s.name AS "skillName", s.emoji, tw.name AS "theyWant"
+             FROM user_requests w
+             JOIN user_offers o ON o.skill_id = w.skill_id AND o.user_id <> $1
+             JOIN profiles p    ON p.user_id = o.user_id
+             JOIN skills s      ON s.id = o.skill_id
+             LEFT JOIN LATERAL (
+                  SELECT sk.name FROM user_requests r
+                    JOIN user_offers mine ON mine.user_id = $1 AND mine.skill_id = r.skill_id
+                    JOIN skills sk ON sk.id = r.skill_id
+                   WHERE r.user_id = o.user_id LIMIT 1) tw ON true
+            WHERE w.user_id = $1
+            ORDER BY o.id`, [userId]),
+  ]);
+  const extra = {
+    wallet: { balance: wallet, history: history.rows },
+    wants: wants.rows.map((r) => r.id),
+    matches: matches.rows
+      .sort((a, b) => (b.theyWant ? 1 : 0) - (a.theyWant ? 1 : 0))
+      .slice(0, 10),
+  };
   const [users, skills, offers, slots, bookings, reviews] = await Promise.all([
     // Only people the app shows: myself, every teacher, and the learners of MY lessons.
     // E-mail addresses of other people are NOT sent (privacy); the phone only needs names.
@@ -81,6 +146,7 @@ async function snapshot(userId) {
             ORDER BY r.id`),
   ]);
   return {
+    ...extra,
     users: users.rows.map(publicUser),
     skills: skills.rows,
     offers: offers.rows.map((o) => ({ ...o, level: toTitle(o.level) })),
@@ -107,7 +173,47 @@ export function mobileRoutes(app) {
   // Public "are you awake?" check. Also handy to test the deployment in a browser.
   app.get('/api/mobile/health', async (_req, res) => {
     await query('SELECT 1');
-    res.json({ ok: true, api: 'skillswap-mobile', version: 1 });
+    res.json({ ok: true, api: 'skillswap-mobile', version: 2 });
+  });
+
+  // Live updates (Server-Sent Events). The connection stays open; see src/live.js.
+  app.get('/api/mobile/events', requireAuth, (req, res) => openStream(req, res));
+
+  // "What I want to learn" (shared with the website's wish list). Replaces the whole list at once.
+  app.post('/api/mobile/wants', requireAuth, async (req, res) => {
+    const ids = Array.isArray(req.body.skillIds) ? [...new Set(req.body.skillIds.map(Number))] : null;
+    if (!ids || ids.length > 10 || ids.some((n) => !Number.isInteger(n) || n <= 0)) {
+      throw new HttpError(400, 'skillIds must be a list of up to 10 skill ids');
+    }
+    await withTransaction(async (db) => {
+      await db.query('DELETE FROM user_requests WHERE user_id = $1', [req.user.id]);
+      for (const id of ids) {
+        await db.query('INSERT INTO user_requests (user_id, skill_id) SELECT $1, id FROM skills WHERE id = $2', [req.user.id, id]);
+      }
+    });
+    res.json({ ok: true });
+  });
+
+  // A 60-minute plan for a booked lesson (learner or teacher). Generated once, then cached.
+  app.post('/api/mobile/bookings/:id/plan', requireAuth, async (req, res) => {
+    const id = cleanId(req.params.id, 'bookingId');
+    const r = await query(
+      `SELECT b.learner_id, o.user_id AS teacher_id, o.level, s.name AS skill, c.name AS category
+         FROM slot_bookings b JOIN user_offers o ON o.id = b.offer_id
+         JOIN skills s ON s.id = o.skill_id JOIN categories c ON c.id = s.category_id
+        WHERE b.id = $1`, [id]);
+    const info = r.rows[0];
+    if (!info || (info.learner_id !== req.user.id && info.teacher_id !== req.user.id)) {
+      throw new HttpError(404, 'Booking not found');
+    }
+    const cached = await query('SELECT plan, source FROM lesson_plans WHERE booking_id = $1', [id]);
+    if (cached.rows[0]) return res.json(cached.rows[0]);
+    let plan = null;
+    let source = 'ai';
+    try { plan = await aiPlan(info); } catch { plan = null; }
+    if (!plan) { plan = templatePlan(info); source = 'template'; }
+    await query('INSERT INTO lesson_plans (booking_id, plan, source) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING', [id, plan, source]);
+    res.json({ plan, source });
   });
 
   app.post('/api/mobile/register', async (req, res) => {
@@ -120,6 +226,7 @@ export function mobileRoutes(app) {
       id = await withTransaction(async (db) => {
         const u = await db.query('INSERT INTO users (email, password_hash) VALUES ($1,$2) RETURNING id', [email, hash]);
         await db.query('INSERT INTO profiles (user_id, display_name) VALUES ($1,$2)', [u.rows[0].id, name]);
+        await giveWelcome(db, u.rows[0].id);
         return u.rows[0].id;
       });
     } catch (e) {
@@ -183,6 +290,11 @@ export function mobileRoutes(app) {
         return id;
       });
       res.status(201).json({ offerId });
+      later(async () => {
+        const skillName = (await query('SELECT name FROM skills WHERE id = $1', [skillId])).rows[0].name;
+        notifyAllExcept(req.user.id, `New lesson: ${skillName} by ${req.user.display_name.split(' ')[0]}`);
+        broadcastChanged();
+      });
     } catch (e) {
       if (e.code === '23505') throw new HttpError(409, 'You already teach this skill');
       throw e;
@@ -202,6 +314,13 @@ export function mobileRoutes(app) {
       if (!slot) throw new HttpError(404, 'This time does not exist any more');
       if (slot.teacher_id === req.user.id) throw new HttpError(400, 'You cannot book your own lesson');
 
+      // Lock MY row so two bookings of mine at the same moment cannot both spend the last credit.
+      await db.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [req.user.id]);
+      await giveWelcome(db, req.user.id);
+      if ((await balanceOf(db, req.user.id)) < 1) {
+        throw new HttpError(402, 'Not enough credits. Teach a lesson to earn more 🪙');
+      }
+
       const clash = await db.query(
         `SELECT 1 FROM slot_bookings b JOIN offer_slots s2 ON s2.id = b.slot_id
           WHERE b.learner_id = $1 AND b.status = 'BOOKED' AND s2.weekday = $2 AND s2.hour = $3`,
@@ -215,9 +334,16 @@ export function mobileRoutes(app) {
       const b = await db.query(
         'INSERT INTO slot_bookings (slot_id, offer_id, learner_id) VALUES ($1,$2,$3) RETURNING id',
         [slotId, slot.offer_id, req.user.id]);
+      await db.query("INSERT INTO credit_ledger (user_id, amount, reason, booking_id) VALUES ($1, -1, 'booked', $2)",
+        [req.user.id, b.rows[0].id]);                  // 1 hour of learning costs 1 credit
       return b.rows[0].id;
     });
     res.status(201).json({ bookingId });
+    later(async () => {
+      const i = await lessonInfo(bookingId);
+      notify(i.teacher_id, `🎉 ${i.learner} booked your ${i.skill} lesson · ${i.when}`);
+      broadcastChanged();
+    });
   });
 
   app.post('/api/mobile/bookings/:id/cancel', requireAuth, async (req, res) => {
@@ -227,8 +353,17 @@ export function mobileRoutes(app) {
       if (b.status !== 'BOOKED') throw new HttpError(409, 'Only a planned lesson can be cancelled');
       await db.query("UPDATE slot_bookings SET status = 'CANCELLED' WHERE id = $1", [id]);
       await db.query('UPDATE offer_slots SET is_booked = false WHERE id = $1', [b.slot_id]);  // free the time again
+      await db.query("INSERT INTO credit_ledger (user_id, amount, reason, booking_id) VALUES ($1, 1, 'refund', $2)",
+        [b.learner_id, id]);                           // the learner gets the credit back
     });
     res.json({ ok: true });
+    later(async () => {
+      const i = await lessonInfo(id);
+      const other = req.user.id === i.learner_id ? i.teacher_id : i.learner_id;
+      const who = req.user.id === i.learner_id ? i.learner : i.teacher;
+      notify(other, `${who} cancelled the ${i.skill} lesson · ${i.when}`);
+      broadcastChanged();
+    });
   });
 
   app.post('/api/mobile/bookings/:id/complete', requireAuth, async (req, res) => {
@@ -239,8 +374,15 @@ export function mobileRoutes(app) {
       await db.query("UPDATE slot_bookings SET status = 'DONE' WHERE id = $1", [id]);
       // The slot is a WEEKLY time: after the lesson it is free again for the next learner.
       await db.query('UPDATE offer_slots SET is_booked = false WHERE id = $1', [b.slot_id]);
+      await db.query("INSERT INTO credit_ledger (user_id, amount, reason, booking_id) VALUES ($1, 1, 'taught', $2)",
+        [b.teacher_id, id]);                           // the teacher earns 1 credit for 1 hour taught
     });
     res.json({ ok: true });
+    later(async () => {
+      const i = await lessonInfo(id);
+      notify(i.teacher_id, `🪙 ${i.learner} finished your ${i.skill} lesson. You earned 1 credit!`);
+      broadcastChanged();
+    });
   });
 
   app.post('/api/mobile/bookings/:id/review', requireAuth, async (req, res) => {
@@ -258,5 +400,10 @@ export function mobileRoutes(app) {
       return r.rows[0].id;
     });
     res.status(201).json({ reviewId });
+    later(async () => {
+      const i = await lessonInfo(id);
+      notify(i.teacher_id, `${'★'.repeat(rating)} ${i.learner} rated your ${i.skill} lesson`);
+      broadcastChanged();
+    });
   });
 }

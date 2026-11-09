@@ -156,6 +156,87 @@ test('sync is private: other people\'s bookings and e-mails are not sent', async
   assert.equal(mine.bookings.some((x) => x.id === b), true);
 });
 
+test('time bank: 5 welcome credits, booking costs 1, cancel refunds, finishing pays the teacher', async () => {
+  const { teacher, slots } = await teacherWithSlots();
+  const learner = await newPhoneUser();
+  const bal = async (u) => (await call('GET', '/sync', u.token)).body.wallet.balance;
+  assert.equal(await bal(learner), 5);
+  const b1 = (await call('POST', '/bookings', learner.token, { slotId: slots[0].id })).body.bookingId;
+  assert.equal(await bal(learner), 4);
+  assert.equal((await call('POST', `/bookings/${b1}/cancel`, learner.token)).status, 200);
+  assert.equal(await bal(learner), 5);                                   // refunded
+  const b2 = (await call('POST', '/bookings', learner.token, { slotId: slots[0].id })).body.bookingId;
+  const before = await bal(teacher);
+  assert.equal((await call('POST', `/bookings/${b2}/complete`, learner.token)).status, 200);
+  assert.equal(await bal(teacher), before + 1);                          // teacher earned
+  const history = (await call('GET', '/sync', teacher.token)).body.wallet.history;
+  assert.equal(history[0].reason, 'taught');
+});
+
+test('no credits left -> booking is refused with 402 and nothing is saved', async () => {
+  const { slots } = await teacherWithSlots();
+  const learner = await newPhoneUser();
+  await pool.query("INSERT INTO credit_ledger (user_id, amount, reason) VALUES ($1, -5, 'booked')", [learner.user.id]);
+  const r = await call('POST', '/bookings', learner.token, { slotId: slots[0].id });
+  assert.equal(r.status, 402);
+  const slot = (await pool.query('SELECT is_booked FROM offer_slots WHERE id=$1', [slots[0].id])).rows[0];
+  assert.equal(slot.is_booked, false);                                    // transaction rolled back
+});
+
+test('perfect match: they teach what I want AND want what I teach', async () => {
+  const a = await teacherWithSlots();                 // a teaches skill A
+  const b = await teacherWithSlots();                 // b teaches skill B
+  const skillOf = async (offerId) => (await pool.query('SELECT skill_id FROM user_offers WHERE id=$1', [offerId])).rows[0].skill_id;
+  const skillA = await skillOf(a.offerId);
+  const skillB = await skillOf(b.offerId);
+  assert.equal((await call('POST', '/wants', a.teacher.token, { skillIds: [skillB] })).status, 200);
+  assert.equal((await call('POST', '/wants', b.teacher.token, { skillIds: [skillA] })).status, 200);
+  const sync = (await call('GET', '/sync', a.teacher.token)).body;
+  assert.deepEqual(sync.wants, [skillB]);
+  const m = sync.matches.find((x) => x.offerId === b.offerId);
+  assert.ok(m, 'match found');
+  assert.ok(m.theyWant, 'two-way match');
+  assert.equal((await call('POST', '/wants', a.teacher.token, { skillIds: 'nope' })).status, 400);
+});
+
+test('lesson plan: only for the two people of the lesson, generated once and cached', async () => {
+  const { teacher, slots } = await teacherWithSlots();
+  const learner = await newPhoneUser();
+  const stranger = await newPhoneUser();
+  const b = (await call('POST', '/bookings', learner.token, { slotId: slots[1].id })).body.bookingId;
+  assert.equal((await call('POST', `/bookings/${b}/plan`, stranger.token)).status, 404);
+  const p1 = await call('POST', `/bookings/${b}/plan`, learner.token);
+  assert.equal(p1.status, 200);
+  assert.ok(p1.body.plan.includes('min'));
+  const p2 = await call('POST', `/bookings/${b}/plan`, teacher.token);
+  assert.equal(p2.body.plan, p1.body.plan);                               // same cached plan
+});
+
+test('live events: the teacher\'s phone is told at once when someone books', async () => {
+  const { teacher, slots } = await teacherWithSlots();
+  const learner = await newPhoneUser();
+  const ctrl = new AbortController();
+  const res = await fetch(`${base}/events`, { headers: { Authorization: `Bearer ${teacher.token}` }, signal: ctrl.signal });
+  assert.equal(res.status, 200);
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let text = '';
+  const waitFor = async (needle) => {
+    const until = Date.now() + 5000;
+    while (!text.includes(needle) && Date.now() < until) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      text += dec.decode(value);
+    }
+    return text.includes(needle);
+  };
+  assert.ok(await waitFor('event: hello'));
+  await call('POST', '/bookings', learner.token, { slotId: slots[0].id });
+  assert.ok(await waitFor('event: notice'), 'notice received');
+  assert.ok(text.includes('booked your'));
+  ctrl.abort();
+});
+
 test('logout deletes the session on the server', async () => {
   const u = await newPhoneUser();
   assert.equal((await call('POST', '/logout', u.token)).status, 200);
