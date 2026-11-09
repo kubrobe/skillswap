@@ -113,6 +113,9 @@ for (const [email, slots] of [
   ['timur@demo.uz', [[3, '20:00', '22:00'], [6, '12:00', '15:00']]],
 ]) for (const [d, a, b] of slots) await pool.query('INSERT INTO availability (user_id, weekday, start_time, end_time) VALUES ($1,$2,$3,$4)', [await uid(email), d, a, b]);
 
+// Tables of the Android app (time slots, bookings, reviews) + their demo data
+await run('07_mobile.sql');
+
 const counts = await pool.query(`SELECT
   (SELECT count(*) FROM users) users, (SELECT count(*) FROM skills) skills,
   (SELECT count(*) FROM user_offers) offers, (SELECT count(*) FROM user_requests) requests,

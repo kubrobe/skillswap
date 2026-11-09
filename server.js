@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadUser, authRoutes } from './src/auth.js';
 import { apiRoutes } from './src/api.js';
+import { mobileRoutes } from './src/mobile.js';
 import { HttpError } from './src/validate.js';
 
 const app = express();
@@ -37,6 +38,7 @@ for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
 }
 
 authRoutes(app);
+mobileRoutes(app);     // JSON API used by the Android app (before apiRoutes, which requires a login for all of /api)
 apiRoutes(app);
 
 app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Not found')));

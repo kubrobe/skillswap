@@ -1,0 +1,244 @@
+// JSON API for the SkillSwap Android app.
+//
+// The website and the app share ONE PostgreSQL database and ONE sessions table.
+// The only difference is how the session token travels: the website uses a cookie,
+// the app sends "Authorization: Bearer <token>" (phones have no cookie jar).
+//
+// The app keeps a local Room (SQLite) copy of what it downloads, so it still works
+// without internet. GET /api/mobile/sync returns that whole snapshot in one request.
+import bcrypt from 'bcryptjs';
+import { query, withTransaction } from './db.js';
+import { createSessionToken, deleteSession, requireAuth, sessionToken } from './auth.js';
+import { HttpError, cleanEmail, cleanPassword, cleanText, cleanId } from './validate.js';
+
+const LEVELS = ['beginner', 'intermediate', 'advanced'];
+const toTitle = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
+function cleanLevel(value) {
+  const s = String(value || '').toLowerCase();
+  if (!LEVELS.includes(s)) throw new HttpError(400, `level must be one of: ${LEVELS.map(toTitle).join(', ')}`);
+  return s;
+}
+
+// [{day,hour}, ...] -> a clean, duplicate-free list
+function cleanSlots(value) {
+  if (!Array.isArray(value) || value.length === 0) throw new HttpError(400, 'Add at least one time slot');
+  if (value.length > 20) throw new HttpError(400, 'At most 20 time slots');
+  const seen = new Set();
+  const out = [];
+  for (const s of value) {
+    const day = Number(s?.day);
+    const hour = Number(s?.hour);
+    if (!Number.isInteger(day) || day < 1 || day > 7) throw new HttpError(400, 'day must be 1 (Monday) to 7 (Sunday)');
+    if (!Number.isInteger(hour) || hour < 0 || hour > 23) throw new HttpError(400, 'hour must be 0 to 23');
+    const key = `${day}:${hour}`;
+    if (!seen.has(key)) { seen.add(key); out.push({ day, hour }); }
+  }
+  return out;
+}
+
+const publicUser = (row) => ({ id: row.id, fullName: row.display_name, email: row.email, bio: row.bio || '' });
+
+// Everything the app needs, in one answer. The app writes it into its own SQLite copy.
+async function snapshot(userId) {
+  const [users, skills, offers, slots, bookings, reviews] = await Promise.all([
+    // only people the app actually shows: teachers, learners and myself
+    query(`SELECT u.id, u.email, p.display_name, p.bio
+             FROM users u JOIN profiles p ON p.user_id = u.id
+            WHERE u.id = $1
+               OR u.id IN (SELECT user_id FROM user_offers)
+               OR u.id IN (SELECT learner_id FROM slot_bookings)
+            ORDER BY u.id`, [userId]),
+    query(`SELECT s.id, s.name, c.name AS category, s.emoji
+             FROM skills s JOIN categories c ON c.id = s.category_id
+            ORDER BY s.name`),
+    query(`SELECT o.id, o.user_id AS "teacherId", o.skill_id AS "skillId", o.level, o.description,
+                  COALESCE(ROUND(AVG(r.rating)::numeric, 1), 0)::double precision AS rating,
+                  COUNT(r.id)::int AS "reviewCount"
+             FROM user_offers o
+             LEFT JOIN slot_bookings b ON b.offer_id = o.id
+             LEFT JOIN slot_reviews  r ON r.booking_id = b.id
+            GROUP BY o.id
+            ORDER BY o.id`),
+    query(`SELECT id, offer_id AS "offerId", weekday AS day, hour, is_booked AS "isBooked"
+             FROM offer_slots ORDER BY offer_id, weekday, hour`),
+    query(`SELECT id, slot_id AS "slotId", offer_id AS "offerId", learner_id AS "learnerId", status,
+                  (EXTRACT(EPOCH FROM created_at) * 1000)::double precision AS "createdAt"
+             FROM slot_bookings ORDER BY id`),
+    query(`SELECT id, booking_id AS "bookingId", rating, comment,
+                  (EXTRACT(EPOCH FROM created_at) * 1000)::double precision AS "createdAt"
+             FROM slot_reviews ORDER BY id`),
+  ]);
+  return {
+    users: users.rows.map(publicUser),
+    skills: skills.rows,
+    offers: offers.rows.map((o) => ({ ...o, level: toTitle(o.level) })),
+    slots: slots.rows,
+    bookings: bookings.rows,
+    reviews: reviews.rows,
+  };
+}
+
+// Read one booking and make sure the person asking is the learner who made it.
+async function myBooking(db, bookingId, userId) {
+  const r = await db.query('SELECT id, slot_id, status, learner_id FROM slot_bookings WHERE id = $1 FOR UPDATE', [bookingId]);
+  const b = r.rows[0];
+  if (!b || b.learner_id !== userId) throw new HttpError(404, 'Booking not found');
+  return b;
+}
+
+export function mobileRoutes(app) {
+  // Public "are you awake?" check. Also handy to test the deployment in a browser.
+  app.get('/api/mobile/health', async (_req, res) => {
+    await query('SELECT 1');
+    res.json({ ok: true, api: 'skillswap-mobile', version: 1 });
+  });
+
+  app.post('/api/mobile/register', async (req, res) => {
+    const email = cleanEmail(req.body.email);
+    const password = cleanPassword(req.body.password);
+    const name = cleanText(req.body.fullName, { min: 2, max: 60, field: 'Name' });
+    const hash = await bcrypt.hash(password, 10);
+    let id;
+    try {
+      id = await withTransaction(async (db) => {
+        const u = await db.query('INSERT INTO users (email, password_hash) VALUES ($1,$2) RETURNING id', [email, hash]);
+        await db.query('INSERT INTO profiles (user_id, display_name) VALUES ($1,$2)', [u.rows[0].id, name]);
+        return u.rows[0].id;
+      });
+    } catch (e) {
+      if (e.code === '23505') throw new HttpError(409, 'That email is already registered');
+      throw e;
+    }
+    const { token } = await createSessionToken(id);
+    res.status(201).json({ token, user: { id, fullName: name, email, bio: '' } });
+  });
+
+  app.post('/api/mobile/login', async (req, res) => {
+    const email = cleanEmail(req.body.email);
+    const r = await query(
+      `SELECT u.id, u.password_hash, u.email, p.display_name, p.bio
+         FROM users u JOIN profiles p ON p.user_id = u.id WHERE u.email = $1`, [email]);
+    const row = r.rows[0];
+    const ok = row && (await bcrypt.compare(String(req.body.password || ''), row.password_hash));
+    if (!ok) throw new HttpError(401, 'Wrong email or password');   // same text for both cases
+    const { token } = await createSessionToken(row.id);
+    res.json({ token, user: publicUser(row) });
+  });
+
+  app.post('/api/mobile/logout', requireAuth, async (req, res) => {
+    const token = sessionToken(req);
+    if (token) await deleteSession(token);
+    res.json({ ok: true });
+  });
+
+  app.get('/api/mobile/sync', requireAuth, async (req, res) => {
+    const data = await snapshot(req.user.id);
+    res.json({ user: publicUser({ ...req.user, id: req.user.id }), ...data });
+  });
+
+  // POST and PATCH both work: Android's built-in HttpURLConnection cannot send PATCH.
+  const updateMe = async (req, res) => {
+    const name = cleanText(req.body.fullName, { min: 2, max: 60, field: 'Name' });
+    const bio = cleanText(req.body.bio, { max: 500, field: 'Bio' });
+    await query('UPDATE profiles SET display_name = $2, bio = $3 WHERE user_id = $1', [req.user.id, name, bio]);
+    res.json({ user: { id: req.user.id, fullName: name, email: req.user.email, bio } });
+  };
+  app.patch('/api/mobile/me', requireAuth, updateMe);
+  app.post('/api/mobile/me', requireAuth, updateMe);
+
+  // Publish a lesson: the offer row AND all its time slots are saved together, or nothing is.
+  app.post('/api/mobile/offers', requireAuth, async (req, res) => {
+    const skillId = cleanId(req.body.skillId, 'skillId');
+    const level = cleanLevel(req.body.level);
+    const description = cleanText(req.body.description, { min: 3, max: 300, field: 'Description' });
+    const slots = cleanSlots(req.body.slots);
+    try {
+      const offerId = await withTransaction(async (db) => {
+        const skill = await db.query('SELECT id FROM skills WHERE id = $1', [skillId]);
+        if (!skill.rows[0]) throw new HttpError(404, 'Unknown skill');
+        const o = await db.query(
+          'INSERT INTO user_offers (user_id, skill_id, level, description) VALUES ($1,$2,$3,$4) RETURNING id',
+          [req.user.id, skillId, level, description]);
+        const id = o.rows[0].id;
+        for (const s of slots) {
+          await db.query('INSERT INTO offer_slots (offer_id, weekday, hour) VALUES ($1,$2,$3)', [id, s.day, s.hour]);
+        }
+        return id;
+      });
+      res.status(201).json({ offerId });
+    } catch (e) {
+      if (e.code === '23505') throw new HttpError(409, 'You already teach this skill');
+      throw e;
+    }
+  });
+
+  // Book a time slot. Everything below happens in ONE transaction, so two learners
+  // tapping "Book" at the same moment can never take the same slot.
+  app.post('/api/mobile/bookings', requireAuth, async (req, res) => {
+    const slotId = cleanId(req.body.slotId, 'slotId');
+    const bookingId = await withTransaction(async (db) => {
+      const s = await db.query(
+        `SELECT s.id, s.offer_id, s.weekday, s.hour, o.user_id AS teacher_id
+           FROM offer_slots s JOIN user_offers o ON o.id = s.offer_id
+          WHERE s.id = $1 FOR UPDATE OF s`, [slotId]);
+      const slot = s.rows[0];
+      if (!slot) throw new HttpError(404, 'This time does not exist any more');
+      if (slot.teacher_id === req.user.id) throw new HttpError(400, 'You cannot book your own lesson');
+
+      const clash = await db.query(
+        `SELECT 1 FROM slot_bookings b JOIN offer_slots s2 ON s2.id = b.slot_id
+          WHERE b.learner_id = $1 AND b.status = 'BOOKED' AND s2.weekday = $2 AND s2.hour = $3`,
+        [req.user.id, slot.weekday, slot.hour]);
+      if (clash.rowCount > 0) throw new HttpError(409, 'You already have a lesson at this time');
+
+      // Taking the slot and saving the booking must both succeed.
+      const taken = await db.query('UPDATE offer_slots SET is_booked = true WHERE id = $1 AND is_booked = false', [slotId]);
+      if (taken.rowCount === 0) throw new HttpError(409, 'Sorry, this time was just booked by someone else');
+
+      const b = await db.query(
+        'INSERT INTO slot_bookings (slot_id, offer_id, learner_id) VALUES ($1,$2,$3) RETURNING id',
+        [slotId, slot.offer_id, req.user.id]);
+      return b.rows[0].id;
+    });
+    res.status(201).json({ bookingId });
+  });
+
+  app.post('/api/mobile/bookings/:id/cancel', requireAuth, async (req, res) => {
+    const id = cleanId(req.params.id, 'bookingId');
+    await withTransaction(async (db) => {
+      const b = await myBooking(db, id, req.user.id);
+      if (b.status !== 'BOOKED') throw new HttpError(409, 'Only a planned lesson can be cancelled');
+      await db.query("UPDATE slot_bookings SET status = 'CANCELLED' WHERE id = $1", [id]);
+      await db.query('UPDATE offer_slots SET is_booked = false WHERE id = $1', [b.slot_id]);  // free the time again
+    });
+    res.json({ ok: true });
+  });
+
+  app.post('/api/mobile/bookings/:id/complete', requireAuth, async (req, res) => {
+    const id = cleanId(req.params.id, 'bookingId');
+    await withTransaction(async (db) => {
+      const b = await myBooking(db, id, req.user.id);
+      if (b.status !== 'BOOKED') throw new HttpError(409, 'Only a planned lesson can be marked as done');
+      await db.query("UPDATE slot_bookings SET status = 'DONE' WHERE id = $1", [id]);
+    });
+    res.json({ ok: true });
+  });
+
+  app.post('/api/mobile/bookings/:id/review', requireAuth, async (req, res) => {
+    const id = cleanId(req.params.id, 'bookingId');
+    const rating = Number(req.body.rating);
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) throw new HttpError(400, 'Rating must be from 1 to 5');
+    const comment = cleanText(req.body.comment, { max: 300, field: 'Comment' });
+    const reviewId = await withTransaction(async (db) => {
+      const b = await myBooking(db, id, req.user.id);
+      if (b.status !== 'DONE') throw new HttpError(409, 'You can rate a lesson after it is done');
+      const exists = await db.query('SELECT 1 FROM slot_reviews WHERE booking_id = $1', [id]);
+      if (exists.rowCount > 0) throw new HttpError(409, 'You already rated this lesson');
+      const r = await db.query(
+        'INSERT INTO slot_reviews (booking_id, rating, comment) VALUES ($1,$2,$3) RETURNING id', [id, rating, comment]);
+      return r.rows[0].id;
+    });
+    res.status(201).json({ reviewId });
+  });
+}

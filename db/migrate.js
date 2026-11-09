@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { pool } from '../src/db.js';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
-for (const f of ['05_reviews.sql', '06_collab.sql']) await pool.query(fs.readFileSync(path.join(dir, f), 'utf8'));
+for (const f of ['05_reviews.sql', '06_collab.sql', '07_mobile.sql']) await pool.query(fs.readFileSync(path.join(dir, f), 'utf8'));
 const n = await pool.query('SELECT count(*)::int AS n FROM reviews');
-console.log('Migration done. reviews rows:', n.rows[0].n, '| new tables: messages, notifications, workspaces, milestones, availability');
+console.log('Migration done. reviews rows:', n.rows[0].n, '| new tables: messages, notifications, workspaces, milestones, availability, offer_slots, slot_bookings, slot_reviews');
 await pool.end();

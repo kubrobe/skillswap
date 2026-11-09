@@ -2,7 +2,8 @@
 -- Normalized to 3NF: every non-key column depends only on its table's key.
 
 DROP VIEW IF EXISTS v_mutual_matches;
-DROP TABLE IF EXISTS availability, milestones, workspaces, notifications, messages, reviews, search_log, exchange_status_log, exchanges, user_requests, user_offers,
+DROP TABLE IF EXISTS slot_reviews, slot_bookings, offer_slots,
+                     availability, milestones, workspaces, notifications, messages, reviews, search_log, exchange_status_log, exchanges, user_requests, user_offers,
                      skills, categories, profiles, sessions, users CASCADE;
 
 -- 1. Accounts: login data only
