@@ -298,6 +298,26 @@ test('activity feed: sync has it, and the teacher\'s phone gets a live credit ev
   assert.ok(!feed.some((f) => f.text.includes(learner.user.fullName)), 'learners stay anonymous');
 });
 
+test('impact: public community numbers, 8 weeks of history, and a finished lesson counts at once', async () => {
+  const before = await call('GET', '/impact', null);
+  assert.equal(before.status, 200);
+  const i = before.body;
+  assert.equal(i.weekly.length, 8);
+  assert.ok(i.members > 0 && i.lessonsDone > 0);
+  assert.equal(i.savedUzs, i.lessonsDone * i.tutorPriceUzs);
+  assert.match(i.assumption, /Estimate/);
+  assert.ok(i.weekly.slice(0, 7).some((w) => w.lessons > 0), 'sample history fills earlier weeks');
+  assert.ok(i.topSkills.length > 0 && i.topSkills[0].emoji);
+
+  const { slots } = await teacherWithSlots();
+  const learner = await newPhoneUser();
+  const b = (await call('POST', '/bookings', learner.token, { slotId: slots[0].id })).body.bookingId;
+  assert.equal((await finish(b, learner.token)).status, 200);
+  const after = (await call('GET', '/impact', null)).body;
+  assert.equal(after.lessonsDone, i.lessonsDone + 1);
+  assert.equal(after.weekly[7].lessons, i.weekly[7].lessons + 1);
+});
+
 test('logout deletes the session on the server', async () => {
   const u = await newPhoneUser();
   assert.equal((await call('POST', '/logout', u.token)).status, 200);

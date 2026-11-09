@@ -210,6 +210,54 @@ export function mobileRoutes(app) {
     res.json({ ok: true, api: 'skillswap-mobile', version: 3, database: database ? 'ready' : 'tables missing' });
   });
 
+  // Community impact, the same numbers for everyone (no login, no personal data).
+  // "Saved" money is an ESTIMATE: finished lessons x AVG_TUTOR_PRICE_UZS (default 100,000 UZS per hour).
+  app.get('/api/mobile/impact', async (req, res) => {
+    const price = Number(process.env.AVG_TUTOR_PRICE_UZS) || 100000;
+    const [totals, weekly, top] = await Promise.all([
+      query(`SELECT
+               (SELECT count(*) FROM users)::int                                      AS members,
+               (SELECT count(DISTINCT user_id) FROM user_offers)::int                 AS teachers,
+               (SELECT count(DISTINCT skill_id) FROM user_offers)::int                AS skills,
+               (SELECT count(*) FROM slot_bookings WHERE status = 'DONE')::int        AS app_lessons,
+               (SELECT count(*) FROM exchanges WHERE status = 'completed')::int       AS web_swaps,
+               (SELECT count(*) FROM slot_bookings WHERE status = 'BOOKED')::int      AS upcoming,
+               (SELECT COALESCE(sum(amount), 0) FROM credit_ledger)::int              AS credits,
+               (SELECT round(avg(rating)::numeric, 1) FROM slot_reviews)::float       AS avg_rating,
+               (SELECT count(*) FROM slot_reviews)::int                               AS reviews`),
+      // finished lessons per week (app lessons + website swaps), last 8 weeks, empty weeks included
+      query(`WITH weeks AS (
+               SELECT generate_series(date_trunc('week', now()) - interval '7 weeks', date_trunc('week', now()), interval '1 week') AS wk
+             ), done AS (
+               SELECT COALESCE(c.created_at, b.created_at) AS at
+                 FROM slot_bookings b
+                 LEFT JOIN credit_ledger c ON c.booking_id = b.id AND c.reason = 'taught'
+                WHERE b.status = 'DONE'
+               UNION ALL
+               SELECT COALESCE((SELECT max(changed_at) FROM exchange_status_log l
+                                 WHERE l.exchange_id = e.id AND l.status = 'completed'), e.created_at)
+                 FROM exchanges e WHERE e.status = 'completed'
+             )
+             SELECT to_char(w.wk, 'YYYY-MM-DD') AS week, count(d.at)::int AS lessons
+               FROM weeks w LEFT JOIN done d ON d.at >= w.wk AND d.at < w.wk + interval '1 week'
+              GROUP BY w.wk ORDER BY w.wk`),
+      query(`SELECT s.name, s.emoji, count(*)::int AS lessons
+               FROM slot_bookings b JOIN user_offers o ON o.id = b.offer_id JOIN skills s ON s.id = o.skill_id
+              WHERE b.status <> 'CANCELLED'
+              GROUP BY s.id, s.name, s.emoji ORDER BY lessons DESC, s.name LIMIT 5`),
+    ]);
+    const t = totals.rows[0];
+    const lessons = t.app_lessons + t.web_swaps;
+    res.json({
+      members: t.members, teachers: t.teachers, skills: t.skills,
+      lessonsDone: lessons, hoursShared: lessons, upcoming: t.upcoming,
+      creditsInCirculation: t.credits, avgRating: t.avg_rating ?? 0, reviews: t.reviews,
+      tutorPriceUzs: price, savedUzs: lessons * price,
+      assumption: `Estimate: 1 lesson = 1 hour, and a private tutor costs about ${price.toLocaleString('en-US')} UZS per hour.`,
+      weekly: weekly.rows, topSkills: top.rows,
+    });
+  });
+
   // Live updates (Server-Sent Events). The connection stays open; see src/live.js.
   app.get('/api/mobile/events', requireAuth, (req, res) => openStream(req, res));
 
