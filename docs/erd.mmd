@@ -1,52 +1,206 @@
 erDiagram
-    users ||--|| profiles : "has one"
-    users ||--o{ sessions : "logs in with"
-    users ||--o{ user_offers : "teaches"
-    users ||--o{ user_requests : "wants to learn"
-    categories ||--o{ skills : "groups"
-    skills ||--o{ user_offers : "is taught as"
-    skills ||--o{ user_requests : "is wanted as"
-    users ||--o{ exchanges : "requests (requester_id)"
-    users ||--o{ exchanges : "teaches in (provider_id)"
-    skills ||--o{ exchanges : "skill_wanted_id / skill_offered_id"
-    exchanges ||--o{ exchange_status_log : "history"
+    users ||--|| profiles : "user_id"
+    users ||--o{ sessions : "user_id"
+    categories ||--o{ skills : "category_id"
+    users ||--o{ user_offers : "user_id"
+    skills ||--o{ user_offers : "skill_id"
+    users ||--o{ user_requests : "user_id"
+    skills ||--o{ user_requests : "skill_id"
+    users ||--o{ exchanges : "requester_id"
+    users ||--o{ exchanges : "provider_id"
+    skills ||--o{ exchanges : "skill_wanted_id"
+    skills ||--o{ exchanges : "skill_offered_id"
+    exchanges ||--o{ exchange_status_log : "exchange_id"
     users ||--o{ exchange_status_log : "changed_by"
+    exchanges ||--o{ reviews : "exchange_id"
+    users ||--o{ reviews : "reviewer_id"
+    users ||--o{ reviews : "reviewee_id"
+    users ||--o{ search_log : "user_id"
+    skills ||--o{ search_log : "skill_id"
+    exchanges ||--o{ messages : "exchange_id"
+    users ||--o{ messages : "sender_id"
+    users ||--o{ notifications : "user_id"
+    exchanges ||--|| workspaces : "exchange_id"
+    users ||--o{ workspaces : "updated_by"
+    exchanges ||--o{ milestones : "exchange_id"
+    users ||--o{ milestones : "created_by"
+    users ||--o{ availability : "user_id"
+    user_offers ||--o{ offer_slots : "offer_id"
+    offer_slots ||--o{ slot_bookings : "slot_id"
+    user_offers ||--o{ slot_bookings : "offer_id"
+    users ||--o{ slot_bookings : "learner_id"
+    slot_bookings ||--|| slot_reviews : "booking_id"
+    users ||--o{ credit_ledger : "user_id"
+    slot_bookings ||--o{ credit_ledger : "booking_id"
+    slot_bookings ||--|| lesson_plans : "booking_id"
+    users ||--|| telegram_links : "user_id"
+    users ||--o{ telegram_link_codes : "user_id"
+    slot_bookings ||--o{ telegram_reminders : "booking_id"
 
-    users { int id PK
-            string email UK
-            string password_hash
-            timestamptz created_at }
-    profiles { int user_id PK,FK
-               string display_name
-               string city
-               string bio }
-    sessions { char token_hash PK
-               int user_id FK
-               timestamptz expires_at }
-    categories { int id PK
-                 string name UK }
-    skills { int id PK
-             int category_id FK
-             string name UK }
-    user_offers { int id PK
-                  int user_id FK
-                  int skill_id FK
-                  string level
-                  string description }
-    user_requests { int id PK
-                    int user_id FK
-                    int skill_id FK
-                    string description }
-    exchanges { int id PK
-                int requester_id FK
-                int provider_id FK
-                int skill_wanted_id FK
-                int skill_offered_id FK
-                string message
-                string status
-                timestamptz created_at }
-    exchange_status_log { int id PK
-                          int exchange_id FK
-                          string status
-                          int changed_by FK
-                          timestamptz changed_at }
+    users {
+        int id PK
+        varchar email UK
+        text password_hash
+        timestamptz created_at
+    }
+    profiles {
+        integer user_id PK,FK
+        varchar display_name
+        varchar city
+        varchar bio
+        varchar time_zone
+    }
+    sessions {
+        char token_hash PK
+        integer user_id FK
+        timestamptz expires_at
+    }
+    categories {
+        int id PK
+        varchar name UK
+    }
+    skills {
+        int id PK
+        integer category_id FK
+        varchar name UK
+        varchar emoji
+    }
+    user_offers {
+        int id PK
+        integer user_id FK
+        integer skill_id FK
+        varchar level
+        varchar description
+    }
+    user_requests {
+        int id PK
+        integer user_id FK
+        integer skill_id FK
+        varchar description
+    }
+    exchanges {
+        int id PK
+        integer requester_id FK
+        integer provider_id FK
+        integer skill_wanted_id FK
+        integer skill_offered_id FK
+        varchar message
+        varchar status
+        timestamptz created_at
+    }
+    exchange_status_log {
+        int id PK
+        integer exchange_id FK
+        varchar status
+        integer changed_by FK
+        timestamptz changed_at
+    }
+    reviews {
+        int id PK
+        integer exchange_id FK
+        integer reviewer_id FK
+        integer reviewee_id FK
+        smallint rating
+        varchar comment
+        timestamptz created_at
+    }
+    search_log {
+        bigint id PK
+        integer user_id FK
+        integer skill_id FK
+        varchar term
+        varchar device
+        timestamptz searched_at
+    }
+    messages {
+        int id PK
+        integer exchange_id FK
+        integer sender_id FK
+        varchar body
+        timestamptz created_at
+        timestamptz read_at
+    }
+    notifications {
+        int id PK
+        integer user_id FK
+        varchar type
+        varchar body
+        varchar link
+        timestamptz created_at
+        timestamptz read_at
+    }
+    workspaces {
+        integer exchange_id PK,FK
+        varchar objective
+        varchar notes
+        integer updated_by FK
+        timestamptz updated_at
+    }
+    milestones {
+        int id PK
+        integer exchange_id FK
+        varchar title
+        varchar status
+        integer position
+        integer created_by FK
+        timestamptz created_at
+        timestamptz updated_at
+    }
+    availability {
+        int id PK
+        integer user_id FK
+        smallint weekday
+        time start_time
+        time end_time
+    }
+    offer_slots {
+        int id PK
+        integer offer_id FK
+        smallint weekday
+        smallint hour
+        boolean is_booked
+    }
+    slot_bookings {
+        int id PK
+        integer slot_id FK
+        integer offer_id FK
+        integer learner_id FK
+        varchar status
+        timestamptz created_at
+        char checkin_code
+    }
+    slot_reviews {
+        int id PK
+        integer booking_id FK,UK
+        smallint rating
+        varchar comment
+        timestamptz created_at
+    }
+    credit_ledger {
+        int id PK
+        integer user_id FK
+        smallint amount
+        varchar reason
+        integer booking_id FK
+        timestamptz created_at
+    }
+    lesson_plans {
+        integer booking_id PK,FK
+        text plan
+        varchar source
+        timestamptz created_at
+    }
+    telegram_links {
+        integer user_id PK,FK
+        bigint chat_id UK
+        timestamptz linked_at
+    }
+    telegram_link_codes {
+        varchar code PK
+        integer user_id FK
+        timestamptz created_at
+    }
+    telegram_reminders {
+        integer booking_id PK,FK
+        timestamp lesson_at PK
+    }

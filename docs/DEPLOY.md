@@ -1,6 +1,6 @@
 # Deploy SkillSwap (free): Supabase (PostgreSQL) + MongoDB Atlas (optional) + Render (website)
 
-Status: **not deployed yet and not tested on these services.** Deployment needs accounts in YOUR name (GitHub, Supabase, Render, optionally Atlas), so you have to do these steps. Budget 45-60 minutes. Do it before the demo day, not on it.
+Status: **deployed.** The website runs on Render at https://skillswap-vqt7.onrender.com and the database is on Supabase. The steps below describe how it was set up, and how to repeat it with your own accounts (GitHub, Supabase, Render, optionally Atlas). Budget 45-60 minutes. Render's free plan sleeps when idle, so the first request after a quiet period can take up to a minute: open the site before a demo.
 
 ## 0. Put the code on GitHub
 1. Create a GitHub account/repository `skillswap` (public or private).
