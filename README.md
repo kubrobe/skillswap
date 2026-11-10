@@ -100,3 +100,26 @@ Transactions (BEGIN/COMMIT/ROLLBACK) are used in: registration (user + profile),
 - Pages: `/notifications` (bell in the header), `/messages`, `/chat?id=`, `/workspace?id=`; availability is edited on `/profile` and shown on member pages.
 - Existing database (e.g. Supabase): run `npm run db:migrate` once. It now applies both `db/05_reviews.sql` and `db/06_collab.sql`, keeps all data, and is safe to run twice.
 - Tests: `npm test` now has 23 API/unit tests plus the MongoDB pipeline tests.
+
+## Update: website redesign (Graphite & Gold)
+
+The website now looks and works like the Android app.
+
+- **Design:** the same Graphite & Gold colours as the app, dark by default with a light mode, self-hosted Poppins and Inter fonts (no CDN, CSP stays `default-src 'self'`).
+- **Icons:** 91 hand-drawn SVG icons generated from the same source as the app's icons, so no emoji anywhere. Every skill has its own icon and category colour.
+- **Layout:** a sidebar on desktop, a bottom tab bar on phones, a new landing page, a split login/sign-up page and a 404 page.
+- **New pages, sharing the app's API:**
+  - Lessons: book a one-hour lesson with time bank credits, check in with the teacher's code, open the video room, get a lesson plan, rate the lesson.
+  - Community impact: hours shared, money saved, a weekly chart, top skills and a live feed.
+  - Skill Galaxy: the community as a solar system, with drag and zoom.
+  - Badges and leaders: eight badges and the weekly podium.
+- **Live updates:** credits, notifications and the activity feed update by themselves (server-sent events), so a lesson booked in the app shows on the website at once.
+- **Tests:** `npm test` still passes all 47 tests.
+
+## Team
+
+| Name | Group | Role |
+| --- | --- | --- |
+| Abdullox Xojimurodov (leader) | I24B | Backend: server, database, API |
+| Biloliddin To'laganov | I24B | Design: colours, icons, screens |
+| Najmiddin Kurganov | I24A | Android app and website front end |

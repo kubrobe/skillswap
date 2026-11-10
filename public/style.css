@@ -397,7 +397,7 @@ body.nav-open .scrim { opacity: 1; pointer-events: auto; }
 .page h2:not(.section-title h2) { font-size: 1.15rem; margin: 26px 0 12px; }
 
 /* Grids */
-.grid { display: grid; gap: 14px; }
+.grid { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
 .grid > .card, .grid > .empty { margin: 0; }
 .cols { display: grid; gap: 0 22px; align-items: start; }
 
@@ -846,7 +846,6 @@ button.chip[aria-pressed="true"] > .icon { color: inherit; }
 .demo { padding-top: 8px; }
 .demo .f1 { top: -18px; right: -6px; }
 .demo .f2 { bottom: -22px; }
-.grid { grid-template-columns: minmax(0, 1fr); }
 .tabs { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 .tabs button { white-space: nowrap; flex: none; }
 .card, .person, .pair .side > div { min-width: 0; }
@@ -856,3 +855,18 @@ button.chip[aria-pressed="true"] > .icon { color: inherit; }
   .timeline li { font-size: .82rem; }
   .page-head .page-actions { width: 100%; }
 }
+/* Lessons (time bank) */
+.lesson .row + .bio, .lesson .bio { margin-top: 10px; }
+.lesson .rating { margin: 6px 0 10px; font-size: .9rem; }
+.lesson .label { margin-top: 12px; }
+.code-box { margin: 12px 0 4px; padding: 14px; border-radius: 16px; text-align: center; background: linear-gradient(160deg, rgba(224, 180, 76, .16), rgba(224, 180, 76, .04)); border: 1px dashed rgba(224, 180, 76, .5); }
+.code-box .label { margin: 0 0 4px; }
+.code-box b { display: block; font-size: 2.2rem; font-weight: 700; letter-spacing: .12em; color: var(--gold); }
+:root[data-theme="light"] .code-box b { color: #87601a; }
+.code-box .meta { margin: 4px 0 0; }
+.checkin { flex-wrap: nowrap; }
+.checkin input { max-width: 160px; letter-spacing: .3em; font-family: var(--display); font-weight: 600; text-align: center; }
+.plan { margin-top: 12px; padding: 14px; border-radius: 14px; background: var(--bg-2); border: 1px solid var(--line); }
+.plan pre { margin: 0; white-space: pre-wrap; font: inherit; font-size: .9rem; color: var(--ink-2); }
+.lesson .card-head h3 { white-space: normal; line-height: 1.25; }
+.lesson .card-head { align-items: flex-start; }

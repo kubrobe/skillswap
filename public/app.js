@@ -230,6 +230,13 @@ function openLive() {
   }
   addEventListener('pagehide', () => liveSource && liveSource.close());
 }
+/** Show a new credit balance in the header (after booking a lesson, for example). */
+export function setCredits(n) {
+  const el = $('.credits .num');
+  if (!el || el.textContent === String(n)) return;
+  el.textContent = String(n);
+  el.parentElement.classList.remove('bump'); void el.offsetWidth; el.parentElement.classList.add('bump');
+}
 function bumpCredits(amount) {
   const n = $('.credits .num');
   if (!n || !amount) return;
@@ -243,6 +250,7 @@ const NAV = [
     ['/dashboard', 'Home', 'home'],
     ['/browse', 'Find a skill', 'search'],
     ['/skills', 'My skills', 'star'],
+    ['/lessons', 'Lessons', 'calendar'],
     ['/exchanges', 'Swaps', 'swap'],
     ['/messages', 'Messages', 'message'],
     ['/notifications', 'Notifications', 'bell'],
@@ -260,8 +268,8 @@ const NAV = [
 const TABS = [
   ['/dashboard', 'Home', 'home'],
   ['/browse', 'Browse', 'search'],
+  ['/lessons', 'Lessons', 'calendar'],
   ['/exchanges', 'Swaps', 'swap'],
-  ['/community', 'Community', 'users'],
   ['/profile', 'Profile', 'user'],
 ];
 // Pages that belong to a tab (a member page is part of Browse, a chat part of Messages...)
