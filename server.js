@@ -46,6 +46,10 @@ apiRoutes(app);
 
 app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Not found')));
 app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] }));
+// Unknown page: a friendly 404 page instead of a blank error
+app.use((req, res, next) => (req.method === 'GET' && req.accepts('html')
+  ? res.status(404).sendFile(path.join(__dirname, 'public', '404.html'))
+  : next()));
 
 // One place that turns errors into JSON answers
 app.use((err, _req, res, _next) => {

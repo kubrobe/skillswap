@@ -1,86 +1,120 @@
-import { api, h, $, requireLogin, renderShell, chip, empty, say, toast, skeleton, ago } from '/app.js';
+import {
+  api, h, $, icon, requireLogin, renderShell, loadCategories, chip, say, toast, skeleton, ago, avatar, skillTile,
+  emptyState, sectionTitle, firstName, stagger,
+} from '/app.js';
 
 await requireLogin();
 renderShell();
+await loadCategories();
 
 const box = $('#content');
 const msg = h('div', { class: 'notice error hidden', role: 'alert' });
 box.before(msg);
+$('.page-actions').append(h('a', { class: 'btn btn-secondary btn-small', href: '/messages' }, icon('message'), 'Messages'),
+  h('a', { class: 'btn btn-primary btn-small', href: '/browse' }, icon('plus'), 'New swap'));
 
-const DONE = { accept: 'Request accepted', decline: 'Request declined', cancel: 'Request cancelled', complete: 'Swap marked as done' };
-const TONE = { pending: 'amber', accepted: 'green', completed: 'green', declined: 'red', cancelled: 'gray' };
+const DONE = { accept: 'Request accepted. A chat is open now.', decline: 'Request declined', cancel: 'Request cancelled', complete: 'Swap marked as done' };
+const TONE = { pending: 'amber', accepted: 'green', completed: 'gold', declined: 'red', cancelled: 'gray' };
+const LABEL = { pending: 'Waiting', accepted: 'In progress', completed: 'Finished', declined: 'Declined', cancelled: 'Cancelled' };
+const STATUS_ICON = { pending: 'hourglass', accepted: 'bolt', completed: 'check_circle', declined: 'close', cancelled: 'undo' };
 
 // Which buttons to show: same rules as the server (the server enforces them too)
 function actionsFor(e) {
   const acts = [];
-  if (e.status === 'pending' && e.direction === 'incoming') acts.push(['accept', 'Accept', 'btn-primary'], ['decline', 'Decline', 'btn-danger']);
-  if (e.status === 'pending' && e.direction === 'outgoing') acts.push(['cancel', 'Cancel request', 'btn-danger']);
-  if (e.status === 'accepted') acts.push(['complete', 'Mark as done', 'btn-primary']);
+  if (e.status === 'pending' && e.direction === 'incoming') acts.push(['accept', 'Accept', 'btn-primary', 'check'], ['decline', 'Decline', 'btn-danger', 'close']);
+  if (e.status === 'pending' && e.direction === 'outgoing') acts.push(['cancel', 'Cancel request', 'btn-danger', 'undo']);
+  if (e.status === 'accepted') acts.push(['complete', 'Mark as done', 'btn-primary', 'check_circle']);
   return acts;
 }
 
-// Review form for a finished swap (saved in PostgreSQL, one review per person per swap)
+// Review form for a finished swap: five star buttons and a comment (one review per person per swap)
 function reviewForm(e, other) {
   const note = h('div', { class: 'notice hidden', role: 'status' });
-  const rating = h('select', { id: `rating-${e.id}`, 'aria-label': 'Rating' }, [5, 4, 3, 2, 1].map((n) => h('option', { value: n }, `${n} - ${'★'.repeat(n)}`)));
-  const comment = h('input', { id: `comment-${e.id}`, maxlength: 300, placeholder: `How was it with ${other.split(' ')[0]}?`, 'aria-label': 'Comment' });
+  let rating = 5;
+  const starsRow = h('div', { class: 'row star-pick', role: 'radiogroup', 'aria-label': 'Rating' });
+  const paint = () => [...starsRow.children].forEach((b, i) => { b.classList.toggle('on', i < rating); b.setAttribute('aria-checked', String(i + 1 === rating)); });
+  for (let n = 1; n <= 5; n++) {
+    starsRow.append(h('button', { type: 'button', role: 'radio', 'aria-label': `${n} star${n > 1 ? 's' : ''}`, onclick: () => { rating = n; paint(); } }, icon('star_fill')));
+  }
+  paint();
+  const comment = h('input', { maxlength: 300, placeholder: `How was it with ${firstName(other)}?`, 'aria-label': 'Comment' });
   const form = h('form', { class: 'review' }, note,
-    h('div', { class: 'field' }, h('label', { for: `rating-${e.id}` }, 'Leave a review'), rating),
-    h('div', { class: 'field' }, comment),
-    h('button', { class: 'btn btn-secondary btn-small', type: 'submit' }, 'Send review'));
+    h('p', { class: 'label' }, 'Leave a review'), starsRow,
+    h('div', { class: 'row' }, comment, h('button', { class: 'btn btn-secondary btn-small', type: 'submit' }, icon('send'), 'Send')));
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
-    try { await api('POST', `/api/exchanges/${e.id}/review`, { rating: rating.value, comment: comment.value }); toast('Review saved. Thank you!'); load(); }
+    try { await api('POST', `/api/exchanges/${e.id}/review`, { rating, comment: comment.value }); toast('Review saved. Thank you!'); load(); }
     catch (err) { say(note, err.message, 'error'); }
   });
   return form;
 }
 
 const WORDS = { pending: 'Request sent', accepted: 'Accepted', declined: 'Declined', cancelled: 'Cancelled', completed: 'Marked as done' };
+const DOT = { pending: 'amber', accepted: 'green', completed: 'green', declined: 'red', cancelled: 'gray' };
 // Vertical history of the swap, read from the exchange_status_log table.
 function timeline(e) {
   return h('ol', { class: 'timeline', 'aria-label': 'History' }, (e.timeline || []).map((t) =>
-    h('li', {}, h('span', { class: `dot dot-${TONE[t.status]}` }), h('span', { class: 'tl-text' }, `${WORDS[t.status] || t.status} by ${t.by.split(' ')[0]}`), h('span', { class: 'tl-when' }, ago(t.at)))));
+    h('li', {}, h('span', { class: `dot dot-${DOT[t.status]}` }), h('span', { class: 'tl-text' }, `${WORDS[t.status] || t.status} by ${firstName(t.by)}`), h('span', { class: 'tl-when' }, ago(t.at)))));
 }
 
 function card(e) {
   const incoming = e.direction === 'incoming';
   const other = incoming ? e.requester_name : e.provider_name;
   const otherId = incoming ? e.requester_id : e.provider_id;
-  return h('div', { class: 'card' },
-    h('div', { class: 'row card-top' }, chip(e.status, TONE[e.status]), e.status === 'completed' && e.reviewed ? h('span', { class: 'reviewed-tag', title: 'You reviewed this swap' }, '\u2713 Reviewed') : null),
-    h('h3', {}, incoming ? `${other} wants to swap with you` : `Your request to ${other}`),
-    h('p', {}, incoming
-      ? `They want to learn ${e.skill_wanted} and can teach you ${e.skill_offered}.`
-      : `You want to learn ${e.skill_wanted} and will teach ${e.skill_offered}.`),
-    e.message ? h('p', { class: 'meta' }, `"${e.message}"`) : null,
+  // What *I* learn and what *I* teach in this swap
+  const iLearn = incoming ? e.skill_offered : e.skill_wanted;
+  const iTeach = incoming ? e.skill_wanted : e.skill_offered;
+  const open = e.status === 'accepted' || e.status === 'completed';
+  return h('article', { class: 'card' },
+    h('div', { class: 'card-head' }, avatar(other, otherId, '', `/member?id=${otherId}`),
+      h('div', {}, h('h3', {}, incoming ? `${firstName(other)} wants to swap` : `Your request to ${firstName(other)}`), h('p', { class: 'meta' }, ago(e.created_at))),
+      chip(LABEL[e.status] || e.status, TONE[e.status], STATUS_ICON[e.status])),
+    h('div', { class: 'pair' },
+      h('div', { class: 'side' }, skillTile(iLearn, { size: 'sm' }), h('div', {}, h('small', {}, 'You learn'), h('b', {}, iLearn))),
+      h('span', { class: 'swap-ic', 'aria-hidden': 'true' }, icon('swap')),
+      h('div', { class: 'side' }, skillTile(iTeach, { size: 'sm' }), h('div', {}, h('small', {}, 'You teach'), h('b', {}, iTeach)))),
+    e.message ? h('p', { class: 'msg-quote' }, `“${e.message}”`) : null,
     timeline(e),
-    h('div', { class: 'row' },
-      actionsFor(e).map(([action, label, cls]) => h('button', { class: `btn btn-small ${cls}`, type: 'button', onclick: async () => {
-        try { await api('PATCH', `/api/exchanges/${e.id}`, { action }); toast(DONE[action]); load(); } catch (err) { say(msg, err.message); }
-      } }, label)),
-      e.status === 'accepted' || e.status === 'completed' ? h('a', { class: 'btn btn-secondary btn-small', href: `/chat?id=${e.id}` }, 'Chat') : null,
-      e.status === 'accepted' || e.status === 'completed' ? h('a', { class: 'btn btn-secondary btn-small', href: `/workspace?id=${e.id}` }, 'Workspace') : null,
-      h('a', { class: 'btn btn-secondary btn-small', href: `/member?id=${otherId}` }, `View ${other.split(' ')[0]}`)),
-    e.status === 'completed' && !e.reviewed ? reviewForm(e, other) : null);
+    e.status === 'completed' && e.reviewed ? h('p', { class: 'meta' }, icon('check', 'icon inline-ic'), ' You reviewed this swap') : null,
+    e.status === 'completed' && !e.reviewed ? reviewForm(e, other) : null,
+    h('div', { class: 'card-foot' },
+      actionsFor(e).map(([action, label, cls, ic]) => h('button', { class: `btn btn-small ${cls}`, type: 'button', onclick: async (ev) => {
+        ev.currentTarget.disabled = true;
+        try { await api('PATCH', `/api/exchanges/${e.id}`, { action }); toast(DONE[action]); load(); } catch (err) { say(msg, err.message); load(); }
+      } }, icon(ic), label)),
+      open ? h('a', { class: 'btn btn-secondary btn-small', href: `/chat?id=${e.id}` }, icon('message'), 'Chat') : null,
+      open ? h('a', { class: 'btn btn-secondary btn-small', href: `/workspace?id=${e.id}` }, icon('target'), 'Workspace') : null));
 }
 
+// Filter: all / waiting / in progress / finished
+let filter = new URLSearchParams(location.search).get('show') || 'all';
+const tabs = h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Show' });
 async function load() {
   say(msg, '');
-  box.replaceChildren(...skeleton(3));
+  box.replaceChildren(...skeleton(2));
   const all = await api('GET', '/api/exchanges');
-  box.replaceChildren();
-  const open = (e) => e.status === 'pending' || e.status === 'accepted';
-  const groups = [
-    ['Waiting for you', all.filter((e) => e.direction === 'incoming' && open(e))],
-    ['Sent by you', all.filter((e) => e.direction === 'outgoing' && open(e))],
-    ['Finished', all.filter((e) => !open(e))],
-  ];
-  if (all.some((x) => x.status === 'accepted' || x.status === 'completed')) box.append(h('a', { class: 'btn btn-secondary btn-small', href: '/messages' }, 'All messages'));
-  if (!all.length) box.append(empty('No swap requests yet. Find someone on the Browse tab.'));
-  for (const [title, rows] of groups) {
-    if (!rows.length) continue;
-    box.append(h('h2', {}, title), ...rows.map(card));
+  const groups = {
+    waiting: ['Waiting for you', 'inbox', all.filter((e) => e.direction === 'incoming' && e.status === 'pending')],
+    sent: ['Sent by you', 'send', all.filter((e) => e.direction === 'outgoing' && e.status === 'pending')],
+    active: ['In progress', 'bolt', all.filter((e) => e.status === 'accepted')],
+    finished: ['Finished', 'check_circle', all.filter((e) => !['pending', 'accepted'].includes(e.status))],
+  };
+  const FILTERS = [['all', 'All', all.length], ['waiting', 'Waiting', groups.waiting[2].length + groups.sent[2].length], ['active', 'In progress', groups.active[2].length], ['finished', 'Finished', groups.finished[2].length]];
+  tabs.replaceChildren(...FILTERS.map(([key, label, n]) => h('button', { type: 'button', role: 'tab', 'aria-selected': String(filter === key), onclick: () => { filter = key; history.replaceState(null, '', key === 'all' ? location.pathname : `?show=${key}`); load(); } }, `${label} · ${n}`)));
+  box.replaceChildren(h('div', { class: 'row' }, tabs));
+  if (!all.length) {
+    box.append(emptyState('swap', 'No swaps yet', 'Find someone who teaches what you want to learn, and offer one of your skills in return.',
+      h('a', { class: 'btn btn-primary btn-small', href: '/browse' }, icon('search'), 'Find a skill')));
+    return;
   }
+  const show = { all: ['waiting', 'sent', 'active', 'finished'], waiting: ['waiting', 'sent'], active: ['active'], finished: ['finished'] }[filter] || [];
+  let shown = 0;
+  for (const key of show) {
+    const [title, ic, rows] = groups[key];
+    if (!rows.length) continue;
+    shown += rows.length;
+    box.append(sectionTitle(`${title} · ${rows.length}`, ic), h('div', { class: 'grid grid-2' }, stagger(rows.map(card))));
+  }
+  if (!shown) box.append(emptyState('inbox', 'Nothing here', 'Try another filter.'));
 }
 load();

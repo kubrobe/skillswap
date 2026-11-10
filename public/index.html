@@ -2,71 +2,195 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SkillSwap - Trade Skills, Not Bills</title>
-  <meta name="description" content="SkillSwap is a place to offer a skill you have and learn one you need, by exchanging with other members.">
-  <meta name="theme-color" content="#f4f5fb">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>SkillSwap - Trade skills, not bills</title>
+  <meta name="description" content="SkillSwap is a time bank for students: teach a skill you know, learn one you need, and pay with time instead of money. On the web and on Android.">
+  <meta name="theme-color" content="#0e1014">
+  <meta property="og:title" content="SkillSwap - Trade skills, not bills">
+  <meta property="og:description" content="Teach what you know, learn what you need. One hour taught = one hour learned.">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/poppins-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
   <script src="/theme.js"></script>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="/style.css">
 </head>
-<body>
+<body class="landing">
   <a class="skip" href="#main">Skip to content</a>
 
   <header class="site-header">
     <a class="brand" href="/" aria-label="SkillSwap home">
-      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
-        <defs>
-          <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stop-color="#2f6bff"/><stop offset="1" stop-color="#7c3aed"/>
-          </linearGradient>
-        </defs>
-        <rect width="32" height="32" rx="9" fill="url(#g)"/>
-        <path d="M9 12h11l-3-3M23 20H12l3 3" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#1B1D23"/><path d="M32 12v11a9 9 0 0 1-9 9H9z" fill="#E0B44C" fill-opacity=".25"/><path d="M8 12.5h14l-3.5-3.5M24 19.5H10l3.5 3.5" fill="none" stroke="#E0B44C" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <span>SkillSwap</span>
     </a>
-    <a class="btn btn-login" href="/login">Log in</a>
+    <nav aria-label="Sections">
+      <a href="#how">How it works</a>
+      <a href="#features">Features</a>
+      <a href="#app">Android app</a>
+    </nav>
+    <span data-theme-slot></span>
+    <a class="btn btn-secondary btn-small" href="/login" data-guest>Log in</a>
+    <a class="btn btn-primary btn-small" href="/signup" data-guest>Join free</a>
+    <a class="btn btn-primary btn-small hidden" href="/dashboard" data-member>Open SkillSwap</a>
   </header>
 
   <main id="main">
-    <section class="hero">
-      <p class="eyebrow">Peer-to-peer skill exchange</p>
-      <h1>Trade Skills,<br><span class="grad">Not Bills</span></h1>
-      <p class="lead">Offer something you're good at. Ask for something you want to learn. Swap with other members.</p>
-
-      <div class="cta">
-        <a class="btn btn-primary" href="/signup">Create your account</a>
-        <a class="btn btn-secondary" href="#how">Learn more</a>
-      </div>
-
-      <figure class="glass swap" aria-label="Example of a skill swap">
-        <figcaption class="swap-label">Example swap</figcaption>
-        <div class="swap-row">
-          <div class="swap-side">
-            <span class="swap-kind">Can teach</span>
-            <span class="chip chip-blue">Python basics</span>
+    <div class="wrap">
+      <section class="hero">
+        <div>
+          <p class="eyebrow" data-icon="coin">A time bank for students</p>
+          <h1>Trade skills,<br><em>not bills.</em></h1>
+          <p class="lead">Teach something you are good at, learn something you need. One hour taught earns one credit, and one credit books one hour of learning. No money, just people helping people.</p>
+          <div class="cta">
+            <a class="btn btn-primary btn-large" href="/signup" data-guest>Create your free account</a>
+            <a class="btn btn-primary btn-large hidden" href="/dashboard" data-member>Go to my dashboard</a>
+            <a class="btn btn-secondary btn-large" href="#how">How it works</a>
           </div>
-          <svg class="swap-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M5 9h13l-3.5-3.5M19 15H6l3.5 3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          <div class="swap-side">
-            <span class="swap-kind">Wants to learn</span>
-            <span class="chip chip-violet">IELTS writing</span>
+          <div class="trust">
+            <span data-icon="shield">QR check-in proves every lesson</span>
+            <span data-icon="phone">Web and Android, one account</span>
+            <span data-icon="globe">English, O‘zbekcha, Русский in the app</span>
           </div>
         </div>
-      </figure>
+
+        <div class="demo" aria-hidden="true">
+          <div class="float f1" data-icon="coin">+1 credit earned</div>
+          <div class="card person">
+            <div class="who">
+              <span class="avatar av-2">DY</span>
+              <div><h3>Dilnoza Yusupova</h3><span class="city" data-icon="map_pin">Tashkent</span></div>
+              <span class="chip chip-green tag-mutual" data-icon="swap">Two-way</span>
+            </div>
+            <p class="label">Can teach you</p>
+            <div class="chips"><span class="chip skill-chip cat-design" data-skill="UI design in Figma">UI design in Figma</span><span class="chip skill-chip cat-design" data-skill="Photo editing">Photo editing</span></div>
+            <p class="label mt">Wants to learn from you</p>
+            <div class="chips"><span class="chip skill-chip cat-prog" data-skill="Python basics">Python basics</span></div>
+          </div>
+          <div class="card">
+            <div class="pair">
+              <div class="side"><span class="stile sm cat-prog" data-skill-tile="Python basics"></span><div><small>You teach</small><b>Python basics</b></div></div>
+              <span class="swap-ic" data-icon-only="swap"></span>
+              <div class="side"><span class="stile sm cat-music" data-skill-tile="Guitar"></span><div><small>You learn</small><b>Guitar</b></div></div>
+            </div>
+            <ol class="timeline">
+              <li><span class="dot dot-amber"></span><span>Request sent by Jasur</span><span class="tl-when">2 days ago</span></li>
+              <li><span class="dot dot-green"></span><span>Accepted by you</span><span class="tl-when">1 day ago</span></li>
+              <li><span class="dot dot-green"></span><span>Lesson checked in with QR</span><span class="tl-when">just now</span></li>
+            </ol>
+          </div>
+          <div class="float f2" data-icon="star_fill">5.0 · “Explained with tiny examples”</div>
+        </div>
+      </section>
+    </div>
+
+    <section class="band" aria-label="SkillSwap in numbers">
+      <div class="wrap stats" id="numbers">
+        <div><b data-count="members">–</b><span>members</span></div>
+        <div><b data-count="lessonsDone">–</b><span>lessons finished</span></div>
+        <div><b data-count="hoursShared">–</b><span>hours shared</span></div>
+        <div><b data-count="avgRating" data-decimals="1">–</b><span>average rating</span></div>
+      </div>
     </section>
 
-    <section id="how" class="how" aria-labelledby="how-title">
-      <h2 id="how-title">How it works</h2>
-      <ol class="steps">
-        <li class="glass"><span class="step-n">1</span><div><h3>Add your skills</h3><p>List what you can teach and what you want to learn.</p></div></li>
-        <li class="glass"><span class="step-n">2</span><div><h3>Get matched</h3><p>We compare both lists and show members who fit, with fair two-way swaps first.</p></div></li>
-        <li class="glass"><span class="step-n">3</span><div><h3>Send a swap request</h3><p>Offer one of your skills for theirs. They accept or decline.</p></div></li>
-      </ol>
-      <a class="btn btn-primary how-cta" href="/signup">Create your account</a>
-    </section>
+    <div class="wrap">
+      <section class="section" id="how" aria-labelledby="how-title">
+        <div class="section-head center">
+          <p class="eyebrow" data-icon="compass">How it works</p>
+          <h2 id="how-title">Three steps to your first swap</h2>
+          <p>No fees and no tutors to pay. Everyone teaches, everyone learns.</p>
+        </div>
+        <ol class="steps">
+          <li><span class="stile gold" data-icon-only="star"></span><h3>Add your skills</h3><p>List what you can teach (Python, guitar, plov…) and what you want to learn.</p></li>
+          <li><span class="stile gold" data-icon-only="users"></span><h3>Get matched</h3><p>We compare both lists. Fair two-way swaps, where you teach each other, come first.</p></li>
+          <li><span class="stile gold" data-icon-only="check_circle"></span><h3>Swap and grow</h3><p>Chat, plan milestones in a shared workspace, meet, and rate each other afterwards.</p></li>
+        </ol>
+      </section>
+
+      <section class="section" id="features" aria-labelledby="features-title">
+        <div class="section-head">
+          <p class="eyebrow" data-icon="sparkle">Features</p>
+          <h2 id="features-title">Everything a swap needs</h2>
+          <p>Built for students in Uzbekistan, shared between this website and the Android app.</p>
+        </div>
+        <div class="features">
+          <div class="feature"><span class="stile gold" data-icon-only="target"></span><h3>Smart matches</h3><p>People who teach what you want and want what you teach, ranked by how well you fit.</p></div>
+          <div class="feature"><span class="stile gold" data-icon-only="coin"></span><h3>Time bank credits</h3><p>Teach an hour, earn a credit. Spend it on any lesson. Five welcome credits to start.</p></div>
+          <div class="feature"><span class="stile gold" data-icon-only="shield"></span><h3>Trust built in</h3><p>A QR check-in proves every lesson, reviews after every swap, a Trusted badge at 4.5 stars.</p></div>
+          <div class="feature"><span class="stile gold" data-icon-only="message"></span><h3>Chat and workspace</h3><p>Talk with your partner, set a goal, tick off milestones and keep shared notes.</p></div>
+          <div class="feature"><span class="stile gold" data-icon-only="orbit"></span><h3>Skill Galaxy</h3><p>The whole community as a live solar system: see who swaps with whom.</p></div>
+          <div class="feature"><span class="stile gold" data-icon-only="trophy"></span><h3>Badges and leaders</h3><p>Eight badges from real lessons, and the top teachers of the week on a podium.</p></div>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="skills-title">
+        <div class="section-head">
+          <p class="eyebrow" data-icon="cap">Most taught</p>
+          <h2 id="skills-title">What students swap right now</h2>
+        </div>
+        <div class="skills-cloud" id="top-skills">
+          <span class="chip skill-chip cat-prog" data-skill="Python basics">Python basics</span>
+          <span class="chip skill-chip cat-design" data-skill="UI design in Figma">UI design in Figma</span>
+          <span class="chip skill-chip cat-lang" data-skill="Korean for beginners">Korean for beginners</span>
+          <span class="chip skill-chip cat-music" data-skill="Guitar">Guitar</span>
+          <span class="chip skill-chip cat-prog" data-skill="SQL and databases">SQL and databases</span>
+          <span class="chip skill-chip cat-cook" data-skill="Cooking plov">Cooking plov</span>
+          <span class="chip skill-chip cat-lang" data-skill="IELTS writing">IELTS writing</span>
+          <span class="chip skill-chip cat-fit" data-skill="Chess">Chess</span>
+        </div>
+      </section>
+
+      <section class="section" id="app" aria-labelledby="app-title">
+        <div class="app-promo">
+          <div>
+            <p class="eyebrow" data-icon="phone">SkillSwap for Android</p>
+            <h2 id="app-title">Your lessons in your pocket</h2>
+            <p>The same account, the same credits, live on your phone.</p>
+            <ul>
+              <li data-icon="cards">Swipe through lessons, right to learn</li>
+              <li data-icon="scan">Check in to a lesson with a QR code</li>
+              <li data-icon="mic">Say what you want to learn, get the 3 best lessons</li>
+              <li data-icon="plane">Telegram reminders 1 hour before each lesson</li>
+            </ul>
+            <div class="row">
+              <a class="btn btn-primary" href="https://github.com/kubrobe/skillswap-android/releases" rel="noopener" data-icon="download">Download the APK</a>
+              <a class="btn btn-secondary" href="https://github.com/kubrobe/skillswap-android" rel="noopener" data-icon="code">Source code</a>
+            </div>
+          </div>
+          <div class="phone-mock" aria-hidden="true">
+            <div class="screen">
+              <div class="ph-head"><b>Hi, Aziza</b><span>3 credits · 5 matches</span></div>
+              <div class="ph-body">
+                <div class="ph-row"><span class="stile sm cat-music" data-skill-tile="Guitar"></span><div><b>Guitar</b><span>Jasur · Sat 18:00</span></div></div>
+                <div class="ph-row"><span class="stile sm cat-lang" data-skill-tile="Korean for beginners"></span><div><b>Korean</b><span>Kamola · Mon 19:00</span></div></div>
+                <div class="ph-row"><span class="stile sm cat-design" data-skill-tile="UI design in Figma"></span><div><b>UI design</b><span>Dilnoza · Wed 17:00</span></div></div>
+                <div class="ph-row"><span class="stile sm cat-cook" data-skill-tile="Cooking plov"></span><div><b>Cooking plov</b><span>Nilufar · Sun 12:00</span></div></div>
+              </div>
+              <div class="ph-bar"><span data-icon-only="home" class="on"></span><span data-icon-only="calendar"></span><span data-icon-only="plus"></span><span data-icon-only="user"></span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="cta-final">
+        <h2>Your first lesson is one swap away</h2>
+        <p>Join free. Five welcome credits are waiting for you.</p>
+        <a class="btn btn-primary btn-large" href="/signup" data-guest>Create your free account</a>
+        <a class="btn btn-primary btn-large hidden" href="/dashboard" data-member>Open SkillSwap</a>
+      </section>
+    </div>
   </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <div>
+        <b>SkillSwap</b> · Trade skills, not bills.<br>
+        A student project at Ajou University in Tashkent · Abdullox Xojimurodov, Biloliddin To'laganov, Najmiddin Kurganov
+      </div>
+      <div class="links">
+        <a href="https://github.com/kubrobe/skillswap" rel="noopener">Website code</a>
+        <a href="https://github.com/kubrobe/skillswap-android" rel="noopener">Android app</a>
+        <a href="/login">Log in</a>
+      </div>
+    </div>
+  </footer>
+  <script type="module" src="/js/landing.js"></script>
 </body>
 </html>

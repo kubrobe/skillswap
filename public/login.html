@@ -2,28 +2,44 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Log in - SkillSwap</title>
-  <meta name="theme-color" content="#f4f5fb">
+  <meta name="theme-color" content="#0e1014">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <script src="/theme.js"></script>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <header class="site-header">
-    <a class="brand" href="/" aria-label="SkillSwap home"><span class="brand-dot" aria-hidden="true"></span><span>SkillSwap</span></a>
-  </header>
-  <main id="main" class="auth">
-    <h1 class="page-title">Log in</h1>
-    <p class="page-sub">Welcome back.</p>
-    <div id="msg" class="notice error hidden" role="alert"></div>
-    <form id="form" novalidate>
-      <div class="field"><label for="email">Email</label><input id="email" name="email" type="email" autocomplete="email" inputmode="email" required></div>
-      <div class="field"><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required></div>
-      <button class="btn btn-primary btn-block" type="submit">Log in</button>
-    </form>
-    <p class="auth-foot">New here? <a href="/signup">Create an account</a></p>
-  </main>
+  <div class="auth-page">
+    <aside class="auth-side" aria-hidden="true">
+      <a class="brand" href="/" aria-label="SkillSwap home"><svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#1B1D23"/><path d="M32 12v11a9 9 0 0 1-9 9H9z" fill="#E0B44C" fill-opacity=".25"/><path d="M8 12.5h14l-3.5-3.5M24 19.5H10l3.5 3.5" fill="none" stroke="#E0B44C" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span>SkillSwap</span></a>
+      <div class="quote">
+        <h2>Welcome back to the time bank.</h2>
+        <p>Your matches, swaps and credits are waiting. The same account works in the Android app.</p>
+        <div class="mini" id="mini">
+          <div><b data-count="members">–</b><span>members</span></div>
+          <div><b data-count="lessonsDone">–</b><span>lessons finished</span></div>
+          <div><b data-count="avgRating" data-decimals="1">–</b><span>average rating</span></div>
+        </div>
+      </div>
+    </aside>
+    <main id="main" class="auth-main">
+      <a class="brand" href="/" aria-label="SkillSwap home"><svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="9" fill="#1B1D23"/><path d="M32 12v11a9 9 0 0 1-9 9H9z" fill="#E0B44C" fill-opacity=".25"/><path d="M8 12.5h14l-3.5-3.5M24 19.5H10l3.5 3.5" fill="none" stroke="#E0B44C" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span>SkillSwap</span></a>
+      <span class="theme-float" data-theme-slot></span>
+      <div class="auth">
+        <h1 class="page-title">Log in</h1>
+        <p class="page-sub">Welcome back.</p>
+        <div id="msg" class="notice error hidden" role="alert"></div>
+        <form id="form" novalidate>
+          <div class="field"><label for="email">Email</label><input id="email" name="email" type="email" autocomplete="email" inputmode="email" required></div>
+          <div class="field"><label for="password">Password</label><div class="pw-wrap"><input id="password" name="password" type="password" autocomplete="current-password" required></div></div>
+          <button class="btn btn-primary btn-block btn-large" type="submit">Log in</button>
+        </form>
+        <p class="auth-foot">New here? <a href="/signup">Create an account</a></p>
+        <div class="demo-hint" id="demo"><span data-icon-slot="spark"></span><div>Just looking? Try the demo account <b>aziza@demo.uz</b></div><button class="btn btn-secondary btn-small" type="button" id="fill">Use demo</button></div>
+      </div>
+    </main>
+  </div>
   <script type="module" src="/js/login.js"></script>
 </body>
 </html>

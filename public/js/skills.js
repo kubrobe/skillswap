@@ -1,39 +1,48 @@
-import { api, h, $, requireLogin, renderShell, chip, empty, say, skillSelect, tier } from '/app.js';
+import {
+  api, h, $, icon, requireLogin, renderShell, loadCategories, say, skillSelect, tier, skillTile, emptyState, toast,
+  sectionTitle, stagger,
+} from '/app.js';
 
 await requireLogin();
 renderShell();
+await loadCategories();
 
 const catalog = await api('GET', '/api/skills');
 const box = $('#content');
+const LEVELS = ['beginner', 'intermediate', 'advanced'];
 
-// One section for "I can teach" (offers) and one for "I want to learn" (requests)
-function section({ title, path, withLevel, addLabel }) {
-  const list = h('div');
+// One column for "I can teach" (offers) and one for "I want to learn" (requests)
+function section({ title, iconId, path, withLevel, addLabel, emptyTitle, emptyText }) {
+  const list = h('div', { class: 'stack' });
   const msg = h('div', { class: 'notice error hidden', role: 'alert' });
-
   const select = skillSelect(catalog, `${path}-skill`, 'Skill');
-  const level = withLevel
-    ? h('div', { class: 'field' }, h('label', { for: `${path}-level` }, 'Your level'),
-        h('select', { id: `${path}-level` }, ['beginner', 'intermediate', 'advanced'].map((l) => h('option', { value: l, selected: l === 'intermediate' }, l))))
-    : null;
+
+  // Level as three buttons (bronze, silver, gold) instead of a drop-down
+  let level = 'intermediate';
+  const seg = withLevel ? h('div', { class: 'seg', role: 'group', 'aria-label': 'Your level' }, LEVELS.map((l) => {
+    const b = h('button', { type: 'button', 'aria-pressed': String(l === level) }, h('span', { class: `lvl lvl-${l}` }), l);
+    b.addEventListener('click', () => { level = l; for (const x of b.parentElement.children) x.setAttribute('aria-pressed', String(x === b)); });
+    return b;
+  })) : null;
+
   const desc = h('div', { class: 'field' }, h('label', { for: `${path}-desc` }, 'Details ', h('span', { class: 'hint' }, '(optional)')),
-    h('input', { id: `${path}-desc`, maxlength: 300, placeholder: withLevel ? 'What can you help with?' : 'What exactly do you want to learn?' }));
-  const form = h('form', { class: 'card', novalidate: true }, h('h3', {}, addLabel), msg, select, level, desc,
-    h('button', { class: 'btn btn-primary btn-block', type: 'submit' }, 'Add'));
+    h('input', { id: `${path}-desc`, maxlength: 300, placeholder: withLevel ? 'What will a learner be able to do afterwards?' : 'What exactly do you want to learn?' }));
+  const form = h('form', { class: 'card gold-edge', novalidate: true },
+    h('h3', {}, addLabel), msg, select,
+    seg ? h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Your level'), seg) : null,
+    desc,
+    h('button', { class: 'btn btn-primary btn-block', type: 'submit' }, icon('plus'), 'Add'));
 
   async function load() {
     const rows = await api('GET', `/api/me/${path}`);
     list.replaceChildren();
-    if (!rows.length) list.append(empty('Nothing here yet.'));
-    for (const r of rows) {
-      list.append(h('div', { class: 'card has-remove' },
-        h('button', { class: 'card-remove', type: 'button', title: 'Remove', 'aria-label': `Remove ${r.skill}`, onclick: async () => {
-          await api('DELETE', `/api/me/${path}/${r.id}`); load();
-        } }, '\u00D7'),
-        h('h3', {}, r.skill),
-        r.level ? h('div', { class: 'row' }, tier(r.level)) : null,
-        r.description ? h('p', {}, r.description) : null));
-    }
+    if (!rows.length) list.append(emptyState(iconId, emptyTitle, emptyText));
+    list.append(...stagger(rows.map((r) => h('div', { class: 'card skill-row has-remove' },
+      skillTile(r.skill),
+      h('div', {}, h('h3', {}, r.skill), r.level ? tier(r.level) : null, r.description ? h('p', {}, r.description) : null),
+      h('button', { class: 'icon-btn card-remove', type: 'button', title: 'Remove', 'aria-label': `Remove ${r.skill}`, onclick: async () => {
+        await api('DELETE', `/api/me/${path}/${r.id}`); toast(`${r.skill} removed`); load();
+      } }, icon('trash'))))));
   }
 
   form.addEventListener('submit', async (e) => {
@@ -43,18 +52,21 @@ function section({ title, path, withLevel, addLabel }) {
     try {
       await api('POST', `/api/me/${path}`, {
         skill_id: skillId,
-        level: withLevel ? $(`#${path}-level`).value : undefined,
+        level: withLevel ? level : undefined,
         description: $(`#${path}-desc`).value,
       });
       form.reset(); say(msg, '');
+      toast('Skill added. Your matches are updated.');
       load();
     } catch (err) { say(msg, err.message); }
   });
 
   load();
-  return [h('h2', {}, title), list, form];
+  return h('section', {}, sectionTitle(title, iconId), list, form);
 }
 
-box.append(
-  ...section({ title: 'I can teach', path: 'offers', withLevel: true, addLabel: 'Add a skill you can teach' }),
-  ...section({ title: 'I want to learn', path: 'requests', withLevel: false, addLabel: 'Add a skill you want to learn' }));
+box.append(h('div', { class: 'cols even' },
+  section({ title: 'I can teach', iconId: 'cap', path: 'offers', withLevel: true, addLabel: 'Add a skill you can teach',
+    emptyTitle: 'Nothing to teach yet', emptyText: 'Everyone is good at something: a language, a game, a recipe.' }),
+  section({ title: 'I want to learn', iconId: 'target', path: 'requests', withLevel: false, addLabel: 'Add a skill you want to learn',
+    emptyTitle: 'No wishes yet', emptyText: 'Add what you want to learn and we will find people who teach it.' })));
