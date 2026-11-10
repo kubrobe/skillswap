@@ -8,6 +8,14 @@ Course project for Big Data (database-backed website).
 
 **Stack:** Node.js + Express (server), PostgreSQL on Supabase (database), plain HTML/CSS/JavaScript (pages, no framework). MongoDB is optional (reviews and activity statistics).
 
+## Screenshots
+
+Website on a phone:
+
+| Home | Browse | Lessons | Swaps |
+|---|---|---|---|
+| <img src="docs/screenshots/home.jpg" width="200" alt="Home with time-bank stats and matches"> | <img src="docs/screenshots/browse.jpg" width="200" alt="Browse with search, categories and most offered skills"> | <img src="docs/screenshots/lessons.jpg" width="200" alt="Lessons with free times and booking"> | <img src="docs/screenshots/swaps.jpg" width="200" alt="Swap with status history and review"> |
+
 ## Features
 
 | Area | What it does |
