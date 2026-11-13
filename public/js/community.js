@@ -1,5 +1,5 @@
 import {
-  api, h, $, icon, requireLogin, renderShell, loadCategories, getSync, bar, skillTile, sectionTitle, countUp, activityItem, iconTile,
+  api, h, $, icon, requireLogin, renderShell, loadCategories, getSync, bar, skillTile, sectionTitle, countUp, activityItem, iconTile, grow, emptyState,
 } from '/app.js';
 
 await requireLogin();
@@ -7,7 +7,9 @@ renderShell();
 await loadCategories();
 const box = $('#content');
 
-const [impact, sync] = await Promise.all([api('GET', '/api/mobile/impact'), getSync()]);
+let impact, sync;
+try { [impact, sync] = await Promise.all([api('GET', '/api/mobile/impact'), getSync()]); }
+catch (e) { box.append(emptyState('signal_off', 'Could not load the numbers', e.message)); throw e; }
 
 function statTile(iconId, value, label, small, decimals = 0) {
   const b = h('b', {}, '0');
@@ -46,7 +48,7 @@ weeks.forEach((w, i) => {
   const col = h('div', { class: `col${i === weeks.length - 1 ? ' dim' : ''}`, title: i === weeks.length - 1 ? 'This week (not finished yet)' : '' },
     h('b', {}, String(w.lessons)), bar_, h('span', {}, `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`));
   chart.append(col);
-  requestAnimationFrame(() => requestAnimationFrame(() => { bar_.style.height = `${Math.max(4, (w.lessons / maxW) * 130)}px`; }));
+  grow(bar_, Math.max(4, (w.lessons / maxW) * 130) / 130);
 });
 main.append(sectionTitle('Lessons per week', 'chart',
   growth == null ? null : h('span', { class: `chip ${growth >= 0 ? 'chip-green' : 'chip-red'}` }, icon(growth >= 0 ? 'trend_up' : 'trend_down'), `${growth >= 0 ? '+' : ''}${growth}% in 3 weeks`)),

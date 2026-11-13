@@ -4,7 +4,9 @@ await requireLogin();
 renderShell();
 const box = $('#content');
 box.replaceChildren(...skeleton(3));
-const list = await api('GET', '/api/conversations');
+let list;
+try { list = await api('GET', '/api/conversations'); }
+catch (e) { box.replaceChildren(emptyState('signal_off', 'Could not load your chats', e.message)); throw e; }
 box.replaceChildren();
 if (!list.length) {
   box.append(emptyState('message', 'No chats yet', 'A chat opens when a swap request is accepted.',

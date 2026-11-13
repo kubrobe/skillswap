@@ -38,10 +38,14 @@ const form = h('form', { class: 'card', novalidate: true },
   h('button', { class: 'btn btn-primary', type: 'submit' }, icon('check'), 'Save profile'));
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
+  const save = form.querySelector('button[type=submit]');
+  if (save.disabled) return;
+  save.disabled = true;
   try {
     await api('PUT', '/api/me/profile', { display_name: nameInput.value, city: $('#city').value, bio: bio.value });
     say(msg, ''); toast('Profile saved');
   } catch (err) { say(msg, err.message, 'error'); }
+  save.disabled = false;
 });
 main.append(form);
 
@@ -72,10 +76,14 @@ const avForm = h('form', { class: 'card', novalidate: true },
     h('button', { class: 'btn btn-primary btn-small', type: 'submit' }, icon('check'), 'Save availability')));
 avForm.addEventListener('submit', async (e) => {
   e.preventDefault();
+  const save = avForm.querySelector('button[type=submit]');
+  if (save.disabled) return;
+  save.disabled = true;
   try {
     await api('PUT', '/api/me/availability', { time_zone: zone.value, slots: [...rows.children].map((r) => r.read()) });
     say(avMsg, ''); toast('Availability saved');
   } catch (err) { say(avMsg, err.message, 'error'); }
+  save.disabled = false;
 });
 main.append(avForm);
 
@@ -108,7 +116,7 @@ if (tg) {
     body.replaceChildren(
       h('p', { class: 'meta' }, linked ? 'Connected. You get booking alerts and a reminder 1 hour before each lesson.' : 'Get booking alerts and a reminder 1 hour before each lesson in Telegram.'),
       !tg.configured ? h('p', { class: 'hint' }, 'The bot is not switched on for this server yet.') :
-        linked ? h('button', { class: 'btn btn-secondary btn-small', type: 'button', onclick: async () => { await api('POST', '/api/mobile/telegram/unlink', {}); toast('Telegram disconnected'); draw(false); } }, icon('close'), 'Disconnect')
+        linked ? h('button', { class: 'btn btn-secondary btn-small', type: 'button', onclick: async () => { try { await api('POST', '/api/mobile/telegram/unlink', {}); toast('Telegram disconnected'); draw(false); } catch (e) { say(note, e.message, 'error'); } } }, icon('close'), 'Disconnect')
           : h('button', { class: 'btn btn-primary btn-small', type: 'button', onclick: async () => {
             try { const { url } = await api('POST', '/api/mobile/telegram/link', {}); window.open(url, '_blank', 'noopener'); say(note, 'Press Start in Telegram, then come back.', 'ok'); }
             catch (e) { say(note, e.message, 'error'); }

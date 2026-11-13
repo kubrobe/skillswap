@@ -9,6 +9,11 @@
   <link rel="preload" href="/fonts/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
   <script src="/theme.js"></script>
   <link rel="stylesheet" href="/style.css">
+  <link rel="preload" href="/fonts/poppins-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="modulepreload" href="/app.js">
+  <link rel="modulepreload" href="/js/icons.js">
+  <!-- blocking="render": the first paint already has the top bar and tab bar, so pages switch without a flash -->
+  <script type="module" src="/js/browse.js" blocking="render"></script>
 </head>
 <body class="app">
   <main id="main" class="page">
@@ -21,6 +26,5 @@
     </div>
     <div id="content" aria-live="polite"></div>
   </main>
-  <script type="module" src="/js/browse.js"></script>
 </body>
 </html>

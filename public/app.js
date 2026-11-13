@@ -116,11 +116,15 @@ export function emptyState(iconId, title, text, action) {
 export const empty = (text) => emptyState('spark', text, '');
 
 // Small message that appears at the bottom for a moment ("Request accepted").
+// Only one toast at a time: a new one replaces the old one instead of stacking on top of it.
+let lastToast = null;
 export function toast(text, tone = 'ok') {
+  if (lastToast) lastToast.remove();
   const t = h('div', { class: `toast toast-${tone}`, role: 'status' }, icon(tone === 'error' ? 'close' : 'check_circle'), text);
+  lastToast = t;
   document.body.append(t);
-  requestAnimationFrame(() => t.classList.add('show'));
-  setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); }, 2600);
+  requestAnimationFrame(() => requestAnimationFrame(() => t.classList.add('show')));
+  setTimeout(() => { t.classList.remove('show'); setTimeout(() => { t.remove(); if (lastToast === t) lastToast = null; }, 300); }, 2600);
 }
 
 // Grey shimmering placeholders shown while data loads.
@@ -151,11 +155,17 @@ export function sectionTitle(text, iconId, action) {
 // Labelled progress bar; the width is set through JavaScript (allowed by our security policy).
 export function bar(label, value, max, note, lead) {
   const fill = h('div', { class: 'bar-fill' });
-  requestAnimationFrame(() => requestAnimationFrame(() => { fill.style.width = `${Math.max(2, Math.round((value / (max || 1)) * 100))}%`; }));
+  // The bar grows with a GPU transform (scaleX through the --v variable), not by changing its width
+  grow(fill, Math.max(0.02, Math.min(1, value / (max || 1))));
   return h('div', { class: 'bar-row' },
     h('div', { class: 'bar-label' }, h('span', {}, lead || null, label), h('span', {}, Number(value).toLocaleString('en-US'))),
     h('div', { class: 'bar-track', role: 'presentation' }, fill),
     note ? h('p', { class: 'bar-note' }, note) : null);
+}
+
+/** Animate a bar to a fraction 0..1 (sets the --v CSS variable two frames later, so the transition runs). */
+export function grow(el, fraction) {
+  requestAnimationFrame(() => requestAnimationFrame(() => el.style.setProperty('--v', String(fraction))));
 }
 
 // Numbers that count up from 0 when they appear.
@@ -207,8 +217,12 @@ export function richText(text = '') {
 }
 
 // One line of the LIVE activity feed: the skill's icon when we recognise the skill, else a spark.
+let skillNamesLongestFirst = null;
 export function activityItem(a, isNew = false) {
-  const skill = [...categoryByName.keys()].sort((x, y) => y.length - x.length).find((n) => (a.text || '').includes(n));
+  if (!skillNamesLongestFirst || skillNamesLongestFirst.length !== categoryByName.size) {
+    skillNamesLongestFirst = [...categoryByName.keys()].sort((x, y) => y.length - x.length);
+  }
+  const skill = skillNamesLongestFirst.find((n) => (a.text || '').includes(n));
   return h('li', { class: isNew ? 'new' : false }, skill ? skillTile(skill, { size: 'sm' }) : iconTile('bolt', 'sm'),
     h('div', {}, h('p', {}, richText(a.text)), h('span', {}, ago(a.at))));
 }
@@ -288,8 +302,11 @@ function makeBell() {
     } catch { /* offline or logged out: ignore */ }
   };
   refresh();
-  // Checked every 30 seconds while the tab is visible (simple polling, no extra server).
+  // Checked every 30 seconds while the tab is visible, and at once when a live notice arrives.
   setInterval(() => { if (document.visibilityState === 'visible') refresh(); }, 30000);
+  addEventListener('live:notice', refresh);
+  addEventListener('skillswap:notifications-read', refresh);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refresh(); });
   return a;
 }
 
@@ -324,15 +341,20 @@ export function brandMark() {
   return t.content.firstChild;
 }
 
-export function renderShell() {
+// The shell is drawn as soon as this file runs (before the login check answers), so the top bar and
+// the tab bar never disappear between pages. renderShell() then only adds the person's name and avatar.
+let shell = null;
+function buildShell() {
   const here = location.pathname.replace(/\.html$/, '').replace(/\/$/, '') || '/';
   const active = PARENT[here] || here;
   const navActive = NAV.some(([, items]) => items.some(([href]) => href === here)) ? here : active;
   document.body.dataset.page = here;   // lets the CSS pick a layout per page
-  const logout = async () => { await api('POST', '/api/logout'); location.href = '/'; };
+  const logout = async () => { try { await api('POST', '/api/logout'); } finally { location.href = '/'; } };
   const close = () => document.body.classList.remove('nav-open');
   const open = () => { document.body.classList.add('nav-open'); $('.sidebar a')?.focus(); };
 
+  const meSlot = h('div', { class: 'me-slot' });
+  const avatarSlot = h('span', { class: 'avatar-slot' });
   const sidebar = h('aside', { class: 'sidebar', 'aria-label': 'Main menu' },
     h('a', { class: 'brand', href: '/dashboard', 'aria-label': 'SkillSwap home' }, brandMark(), 'SkillSwap'),
     NAV.map(([group, items]) => h('nav', { class: 'nav-group', 'aria-label': group },
@@ -341,8 +363,7 @@ export function renderShell() {
         icon(ic), label,
         href === '/notifications' ? h('span', { class: 'badge hidden nav-badge-notifications' }) : null)))),
     h('div', { class: 'side-foot' },
-      currentUser ? h('a', { class: 'me-card', href: '/profile' }, avatar(currentUser.display_name, currentUser.id, 'sm'),
-        h('div', {}, h('b', {}, currentUser.display_name), h('span', {}, currentUser.city || 'Member'))) : null,
+      meSlot,
       h('div', { class: 'side-actions' },
         themeButton('btn btn-secondary btn-small'),
         h('button', { class: 'btn btn-secondary btn-small', type: 'button', onclick: logout }, icon('logout'), 'Log out'))));
@@ -350,8 +371,7 @@ export function renderShell() {
   const topbar = h('header', { class: 'topbar' },
     h('button', { class: 'icon-btn menu-btn', type: 'button', 'aria-label': 'Open menu', onclick: open }, icon('menu')),
     h('a', { class: 'brand', href: '/dashboard', 'aria-label': 'SkillSwap home' }, brandMark(), 'SkillSwap'),
-    h('div', { class: 'top-actions' }, makeCredits(), makeBell(),
-      currentUser ? avatar(currentUser.display_name, currentUser.id, 'sm', '/profile') : null));
+    h('div', { class: 'top-actions' }, makeCredits(), makeBell(), avatarSlot));
 
   const tabbar = h('nav', { class: 'tabbar', 'aria-label': 'Quick links' },
     TABS.map(([href, label, ic]) => h('a', { href, 'aria-current': active === href ? 'page' : false }, icon(ic), h('span', {}, label))));
@@ -359,6 +379,22 @@ export function renderShell() {
   document.body.prepend(h('a', { class: 'skip', href: '#main' }, 'Skip to content'), topbar, sidebar, h('div', { class: 'scrim', onclick: close }));
   document.body.append(tabbar);
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+  // Going back with the browser's back button can restore a page with the drawer still open
+  addEventListener('pageshow', close);
   loadCategories();
   openLive();
+  shell = { meSlot, avatarSlot };
 }
+
+export function renderShell() {
+  if (!shell) buildShell();
+  if (currentUser && !shell.filled) {
+    shell.filled = true;
+    shell.meSlot.replaceWith(h('a', { class: 'me-card', href: '/profile' }, avatar(currentUser.display_name, currentUser.id, 'sm'),
+      h('div', {}, h('b', {}, currentUser.display_name), h('span', {}, currentUser.city || 'Member'))));
+    shell.avatarSlot.replaceWith(avatar(currentUser.display_name, currentUser.id, 'sm', '/profile'));
+  }
+}
+
+// Logged-in pages (<body class="app">): draw the shell right away.
+if (document.body?.classList.contains('app')) buildShell();

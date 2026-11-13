@@ -16,6 +16,8 @@ const TAU = Math.PI * 2;
 const GOLD = '#E0B44C';
 const LIGHT_GOLD = '#F2D28B';
 const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const FONT = '500 11px Inter, system-ui, sans-serif';
+const FONT_ME = '700 11px Inter, system-ui, sans-serif';
 
 // ---------- Layout ----------
 function layout(g, previous) {
@@ -120,8 +122,10 @@ const hint = h('p', { class: 'galaxy-hint' }, 'Drag to move · scroll or pinch t
 const tools = h('div', { class: 'galaxy-tools' },
   h('button', { type: 'button', 'aria-label': 'Zoom in', onclick: () => zoomBy(1.25) }, icon('plus')),
   h('button', { type: 'button', 'aria-label': 'Zoom out', onclick: () => zoomBy(0.8) }, h('span', { 'aria-hidden': 'true' }, '–')),
-  h('button', { type: 'button', 'aria-label': 'Back to the middle', onclick: () => { view.zoom = 1; view.px = 0; view.py = 0; } }, icon('target')));
-const stage = h('div', { class: 'galaxy-wrap' }, canvas, tools, card, hint);
+  h('button', { type: 'button', 'aria-label': 'Back to the middle', onclick: () => { view.zoom = 1; view.px = 0; view.py = 0; kick(); } }, icon('target')));
+// The still background stars live on their own canvas behind the moving one: drawn once, never copied per frame.
+const starfield = h('canvas', { class: 'starfield', 'aria-hidden': 'true' });
+const stage = h('div', { class: 'galaxy-wrap' }, starfield, canvas, tools, card, hint);
 box.append(legend, stage);
 
 let lay = layout(data, null);
@@ -132,16 +136,21 @@ let comets = [];
 let W = 0, H = 0, dpr = 1;
 const ctx = canvas.getContext('2d');
 
+// Pixels to fill grow with the square of the pixel ratio: phones with few cores or little memory draw at 1.5x
+// (still sharp) instead of 2x or 3x, which roughly halves the work per frame.
+const weak = (navigator.hardwareConcurrency || 8) <= 4 || (navigator.deviceMemory || 8) <= 4;
+let maxDpr = weak ? 1.5 : 2;
 function resize() {
-  dpr = Math.min(2, window.devicePixelRatio || 1);
-  W = stage.clientWidth; H = stage.clientHeight;
+  const nextDpr = Math.min(maxDpr, window.devicePixelRatio || 1);
+  const w = stage.clientWidth, hgt = stage.clientHeight;
+  if (w === W && hgt === H && nextDpr === dpr) return;     // nothing changed: keep the canvas (re-allocating it is slow)
+  dpr = nextDpr; W = w; H = hgt;
   canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+  kick();
 }
 new ResizeObserver(resize).observe(stage);
-resize();
 
-// Still stars in the background, drawn once into their own picture
-const starfield = document.createElement('canvas');
+// Still stars in the background, drawn once (and again only when the size changes)
 function paintStarfield() {
   starfield.width = canvas.width; starfield.height = canvas.height;
   const x = starfield.getContext('2d');
@@ -153,24 +162,47 @@ function paintStarfield() {
   }
 }
 
+// ---------- Frame loop: runs only while something moves and the galaxy is on screen ----------
+let running = false, onScreen = true;
+function kick() {
+  if (running || !onScreen) return;
+  running = true;
+  requestAnimationFrame(draw);
+}
+new IntersectionObserver(([e]) => { onScreen = e.isIntersecting; if (onScreen) { last = 0; kick(); } }).observe(stage);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { last = 0; kick(); } });
+
 function zoomBy(k, cx = W / 2, cy = H / 2) {
   const before = view.zoom;
   const after = Math.min(4, Math.max(0.5, before * k));
   const mx = W / 2 + view.px, my = H / 2 + view.py;
   view.px += (cx - mx) * (1 - after / before); view.py += (cy - my) * (1 - after / before);
   view.zoom = after;
+  kick();
+}
+
+// Adaptive quality: if this device cannot keep up (slow frames), draw with fewer pixels until it can.
+const gaps = [];
+function adapt(gap) {
+  if (still || maxDpr <= 1 || gap > 200) return;       // >200 ms = the tab was paused, not slow
+  gaps.push(gap);
+  if (gaps.length < 60) return;
+  const slow = gaps.sort((a, b) => a - b)[30] > 21;     // median frame slower than ~48 fps
+  gaps.length = 0;
+  if (slow) { maxDpr = Math.max(1, Math.min(maxDpr, dpr) - 0.5); resize(); }
 }
 
 function draw(t) {
   if (!last) last = t;
-  if (selected == null && !still) spin += (t - last) / 1000;
+  else adapt(t - last);
+  // after a pause (hidden tab, scrolled away) continue smoothly instead of jumping ahead
+  if (selected == null && !still) spin += Math.min(100, t - last) / 1000;
   last = t; clock = t;
   if (!lay.start) lay.start = t;
   const age = still ? 5000 : t - lay.start;
-  if (starfield.width !== canvas.width) paintStarfield();
+  if (starfield.width !== canvas.width || starfield.height !== canvas.height) paintStarfield();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(starfield, 0, 0);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
   const avail = Math.min(W / 2, H / 2) - 26;
@@ -224,6 +256,7 @@ function draw(t) {
   // stars
   const allNames = SLOT * u >= 58;
   ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  let font = '';
   for (let i = 0; i < lay.n; i++) {
     const r = lay.sr[i];
     if (r < 0.5) continue;
@@ -243,7 +276,8 @@ function draw(t) {
     if (r >= 8) { const side = r * 1.1; ctx.globalAlpha = dim; ctx.drawImage(iconImage(lay.iconIds[i]), x - side / 2, y - side / 2, side, side); ctx.globalAlpha = 1; }
     if ((allNames || i === lay.centre || i === sel || lit.has(i)) && lay.grow[i] > 0.5) {
       const me = i === lay.centre;
-      ctx.font = `${me ? 700 : 500} 11px Inter, system-ui, sans-serif`;
+      const f = me ? FONT_ME : FONT;
+      if (f !== font) { ctx.font = f; font = f; }
       ctx.fillStyle = me ? GOLD : 'rgba(255,255,255,0.88)';
       ctx.globalAlpha = dim;
       ctx.fillText(me ? 'You' : lay.nodes[i].name, x, y + r + (i === sel ? 10 : me ? 9 : 4));
@@ -270,9 +304,13 @@ function draw(t) {
     }
     ctx.globalAlpha = 1;
   }
-  requestAnimationFrame(draw);
+  // Keep going while things move; with "reduce motion" on, stop after the picture is still (redraw on input).
+  const moving = !still || comets.length > 0 || pointers.size > 0 || (!lay.fresh && t - lay.start < 800);
+  if (moving && onScreen && document.visibilityState === 'visible') requestAnimationFrame(draw);
+  else running = false;
 }
-requestAnimationFrame(draw);
+resize();
+kick();
 
 // ---------- Input: drag, wheel / pinch zoom, click a star ----------
 const pointers = new Map();
@@ -283,6 +321,7 @@ canvas.addEventListener('pointermove', (e) => {
   if (!p) return;
   if (pointers.size === 1) { view.px += e.offsetX - p.x; view.py += e.offsetY - p.y; moved += Math.abs(e.offsetX - p.x) + Math.abs(e.offsetY - p.y); }
   p.x = e.offsetX; p.y = e.offsetY;
+  kick();
   if (pointers.size === 2) {
     const [a, b] = [...pointers.values()];
     const d = Math.hypot(a.x - b.x, a.y - b.y);
@@ -299,7 +338,7 @@ const up = (e) => {
 canvas.addEventListener('pointerup', up);
 canvas.addEventListener('pointercancel', up);
 canvas.addEventListener('wheel', (e) => { e.preventDefault(); zoomBy(e.deltaY < 0 ? 1.12 : 0.89, e.offsetX, e.offsetY); }, { passive: false });
-canvas.addEventListener('dblclick', () => { view.zoom = 1; view.px = 0; view.py = 0; });
+canvas.addEventListener('dblclick', () => { view.zoom = 1; view.px = 0; view.py = 0; kick(); });
 
 function pick(x, y) {
   let best = -1, bestD = Infinity;
@@ -309,6 +348,7 @@ function pick(x, y) {
   }
   selected = best >= 0 ? lay.nodes[best].id : null;
   showCard(best >= 0 ? lay.nodes[best] : null);
+  kick();
 }
 
 function showCard(v) {
@@ -333,7 +373,7 @@ async function reload() {
     const before = new Map(lay.edges.map((e) => [e.key, e.w]));
     const nl = layout(next, lay);
     comets = nl.edges.map((e, i) => ((e.w > (before.get(e.key) || 0)) ? { edge: i } : null)).filter(Boolean);
-    data = next; lay = nl; setSub();
+    data = next; lay = nl; setSub(); kick();
   } catch { /* keep the old picture */ }
   reloading = false;
 }

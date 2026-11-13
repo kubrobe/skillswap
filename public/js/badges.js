@@ -1,5 +1,5 @@
 // The 8 badges (computed on the server from real lessons, the same as in the Android app).
-import { h, icon } from '/app.js';
+import { h, icon, grow } from '/app.js';
 
 export const BADGES = {
   first_lesson: ['First lesson', 'Finish your first lesson', 'cap'],
@@ -16,7 +16,7 @@ export function badgeCard(b, compact = false) {
   const [title, desc, ic] = BADGES[b.id] || [b.id, '', 'medal'];
   const on = b.progress >= b.goal;
   const fill = h('i');
-  requestAnimationFrame(() => requestAnimationFrame(() => { fill.style.width = `${Math.min(100, Math.round((b.progress / b.goal) * 100))}%`; }));
+  grow(fill, Math.min(1, b.progress / b.goal));
   return h('div', { class: `badge-card ${on ? 'on' : 'off'}${compact ? ' compact' : ''}`, title: `${title}: ${desc}` },
     h('div', { class: 'medal' }, icon(ic)),
     h('h3', {}, title),

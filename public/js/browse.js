@@ -56,9 +56,13 @@ async function search() {
   if (!q.value.trim()) params.delete('q');
   history.replaceState(null, '', params.toString() ? `?${params}` : location.pathname);
   const mine = ++seq;
-  results.replaceChildren(...skeleton(3));
-  const members = await api('GET', `/api/members?${params}`);
+  if (!results.firstChild) results.replaceChildren(...skeleton(3));   // later searches keep the old cards until the new ones arrive
+  results.classList.add('loading');
+  let members;
+  try { members = await api('GET', `/api/members?${params}`); }
+  catch (e) { if (mine === seq) { results.classList.remove('loading'); results.replaceChildren(emptyState('signal_off', 'Search failed', e.message)); } return; }
   if (mine !== seq) return;                       // an older search answered late: ignore it
+  results.classList.remove('loading');
   results.replaceChildren();
   count.textContent = `${members.length} found`;
   if (!members.length) {

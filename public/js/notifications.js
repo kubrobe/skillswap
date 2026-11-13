@@ -9,17 +9,23 @@ const actions = $('.page-actions');
 
 async function load() {
   box.replaceChildren(...skeleton(3));
-  const { unread, items } = await api('GET', '/api/notifications');
+  let unread, items;
+  try { ({ unread, items } = await api('GET', '/api/notifications')); }
+  catch (e) { box.replaceChildren(emptyState('signal_off', 'Could not load notifications', e.message)); return; }
   box.replaceChildren();
   actions.replaceChildren();
   if (!items.length) { box.append(emptyState('bell', 'All quiet', 'You will see swap requests, messages and reviews here.')); return; }
-  if (unread) actions.append(h('button', { class: 'btn btn-secondary btn-small', type: 'button', onclick: async () => { await api('POST', '/api/notifications/read', {}); load(); } }, icon('check'), `Mark all ${unread} as read`));
+  if (unread) actions.append(h('button', { class: 'btn btn-secondary btn-small', type: 'button', onclick: async (e) => {
+    e.currentTarget.disabled = true;
+    try { await api('POST', '/api/notifications/read', {}); dispatchEvent(new Event('skillswap:notifications-read')); } catch { /* the list below shows the real state */ }
+    load();
+  } }, icon('check'), `Mark all ${unread} as read`));
   box.append(...stagger(items.map((n) => {
     const card = h('a', { class: `card card-link notif${n.read_at ? '' : ' unread'}`, href: n.link },
       iconTile(ICON[n.type] || 'bell', '', `n-${n.type}`),
       h('div', {}, h('p', { class: 'notif-body' }, richText(n.body)), h('p', { class: 'meta' }, ago(n.created_at))));
     card.addEventListener('click', (e) => {
-      if (n.read_at) return;
+      if (n.read_at || !n.link) return;
       e.preventDefault();
       api('POST', '/api/notifications/read', { id: n.id }).finally(() => { location.href = n.link; });
     });
