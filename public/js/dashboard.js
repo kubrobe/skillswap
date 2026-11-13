@@ -12,7 +12,9 @@ const box = $('#content');
 head.classList.add('hidden');                        // the welcome banner replaces the plain title
 box.replaceChildren(...skeleton(3));
 
-const [matches, exchanges, offers, wants, reviews, sync] = await Promise.all([
+let matches, exchanges, offers, wants, reviews, sync;
+try {
+[matches, exchanges, offers, wants, reviews, sync] = await Promise.all([
   api('GET', '/api/matches'),
   api('GET', '/api/exchanges'),
   api('GET', '/api/me/offers'),
@@ -20,6 +22,11 @@ const [matches, exchanges, offers, wants, reviews, sync] = await Promise.all([
   api('GET', `/api/members/${user.id}/reviews`).catch(() => ({ enabled: false })),
   getSync(),
 ]);
+} catch (e) {
+  head.classList.remove('hidden');
+  box.replaceChildren(emptyState('signal_off', 'Could not load your home page', `${e.message}. Pull down or reload to try again.`));
+  throw e;
+}
 
 const waiting = exchanges.filter((e) => e.direction === 'incoming' && e.status === 'pending');
 const active = exchanges.filter((e) => e.status === 'accepted');

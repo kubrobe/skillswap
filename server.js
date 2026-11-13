@@ -2,6 +2,7 @@
 import 'dotenv/config';
 import express from 'express';
 import cookieParser from 'cookie-parser';
+import compression from 'compression';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadUser, authRoutes } from './src/auth.js';
@@ -26,6 +27,24 @@ app.use((_req, res, next) => {
   next();
 });
 
+// gzip for pages, CSS, JS and JSON (about 4x smaller over a phone network).
+// Never for the live event stream: compression would hold the events back until a buffer fills.
+app.use(compression({
+  filter: (req, res) => !String(res.getHeader('Content-Type') || '').includes('text/event-stream') && compression.filter(req, res),
+}));
+
+// Static files FIRST: pages, CSS, JS, fonts and icons do not need to know who is logged in, so they are
+// sent without the session lookup in the database (one database round trip saved on every file).
+const ONE_YEAR = 365 * 24 * 3600;
+app.use(express.static(path.join(__dirname, 'public'), {
+  extensions: ['html'],
+  setHeaders(res, file) {
+    if (/\.(woff2|svg|png|jpg)$/.test(file)) res.set('Cache-Control', `public, max-age=${ONE_YEAR}, immutable`);   // fonts and icons never change
+    else if (/\.(css|js)$/.test(file)) res.set('Cache-Control', 'public, max-age=600, stale-while-revalidate=86400');  // fresh within 10 minutes of a deploy
+    else res.set('Cache-Control', 'no-cache');                                                                    // HTML: always ask (cheap 304)
+  },
+}));
+
 app.use(express.json({ limit: '20kb' }));
 app.use(cookieParser());
 app.use(loadUser);                        // sets req.user when logged in
@@ -45,7 +64,6 @@ mobileRoutes(app);     // JSON API used by the Android app (before apiRoutes, wh
 apiRoutes(app);
 
 app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Not found')));
-app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] }));
 // Unknown page: a friendly 404 page instead of a blank error
 app.use((req, res, next) => (req.method === 'GET' && req.accepts('html')
   ? res.status(404).sendFile(path.join(__dirname, 'public', '404.html'))

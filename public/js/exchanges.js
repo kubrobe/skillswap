@@ -43,8 +43,11 @@ function reviewForm(e, other) {
     h('div', { class: 'row' }, comment, h('button', { class: 'btn btn-secondary btn-small', type: 'submit' }, icon('send'), 'Send')));
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
+    const send = form.querySelector('button[type=submit]');
+    if (send.disabled) return;
+    send.disabled = true;
     try { await api('POST', `/api/exchanges/${e.id}/review`, { rating, comment: comment.value }); toast('Review saved. Thank you!'); load(); }
-    catch (err) { say(note, err.message, 'error'); }
+    catch (err) { say(note, err.message, 'error'); send.disabled = false; }
   });
   return form;
 }
@@ -79,7 +82,14 @@ function card(e) {
     e.status === 'completed' && !e.reviewed ? reviewForm(e, other) : null,
     h('div', { class: 'card-foot' },
       actionsFor(e).map(([action, label, cls, ic]) => h('button', { class: `btn btn-small ${cls}`, type: 'button', onclick: async (ev) => {
-        ev.currentTarget.disabled = true;
+        const btn = ev.currentTarget;
+        if ((action === 'decline' || action === 'cancel') && !btn.dataset.armed) {   // destructive: tap twice
+          btn.dataset.armed = '1'; const old = [...btn.childNodes];
+          btn.replaceChildren(icon('close'), 'Tap again');
+          setTimeout(() => { delete btn.dataset.armed; btn.replaceChildren(...old); }, 3000);
+          return;
+        }
+        for (const b of btn.parentElement.querySelectorAll('button')) b.disabled = true;
         try { await api('PATCH', `/api/exchanges/${e.id}`, { action }); toast(DONE[action]); load(); } catch (err) { say(msg, err.message); load(); }
       } }, icon(ic), label)),
       open ? h('a', { class: 'btn btn-secondary btn-small', href: `/chat?id=${e.id}` }, icon('message'), 'Chat') : null,
@@ -89,10 +99,15 @@ function card(e) {
 // Filter: all / waiting / in progress / finished
 let filter = new URLSearchParams(location.search).get('show') || 'all';
 const tabs = h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Show' });
+let loaded = false, animateNext = false;
 async function load() {
   say(msg, '');
-  box.replaceChildren(...skeleton(2));
-  const all = await api('GET', '/api/exchanges');
+  if (!loaded) box.replaceChildren(...skeleton(2));   // only the first time: later reloads swap the content in place
+  let all;
+  try { all = await api('GET', '/api/exchanges'); }
+  catch (err) { if (!loaded) box.replaceChildren(emptyState('signal_off', 'Could not load your swaps', err.message)); else say(msg, err.message); return; }
+  const y = scrollY, animate = !loaded || animateNext;
+  loaded = true; animateNext = false;
   const groups = {
     waiting: ['Waiting for you', 'inbox', all.filter((e) => e.direction === 'incoming' && e.status === 'pending')],
     sent: ['Sent by you', 'send', all.filter((e) => e.direction === 'outgoing' && e.status === 'pending')],
@@ -100,7 +115,7 @@ async function load() {
     finished: ['Finished', 'check_circle', all.filter((e) => !['pending', 'accepted'].includes(e.status))],
   };
   const FILTERS = [['all', 'All', all.length], ['waiting', 'Waiting', groups.waiting[2].length + groups.sent[2].length], ['active', 'In progress', groups.active[2].length], ['finished', 'Finished', groups.finished[2].length]];
-  tabs.replaceChildren(...FILTERS.map(([key, label, n]) => h('button', { type: 'button', role: 'tab', 'aria-selected': String(filter === key), onclick: () => { filter = key; history.replaceState(null, '', key === 'all' ? location.pathname : `?show=${key}`); load(); } }, `${label} · ${n}`)));
+  tabs.replaceChildren(...FILTERS.map(([key, label, n]) => h('button', { type: 'button', role: 'tab', 'aria-selected': String(filter === key), onclick: () => { filter = key; animateNext = true; history.replaceState(null, '', key === 'all' ? location.pathname : `?show=${key}`); load(); } }, `${label} · ${n}`)));
   box.replaceChildren(h('div', { class: 'row' }, tabs));
   if (!all.length) {
     box.append(emptyState('swap', 'No swaps yet', 'Find someone who teaches what you want to learn, and offer one of your skills in return.',
@@ -113,8 +128,10 @@ async function load() {
     const [title, ic, rows] = groups[key];
     if (!rows.length) continue;
     shown += rows.length;
-    box.append(sectionTitle(`${title} · ${rows.length}`, ic), h('div', { class: 'grid grid-2' }, stagger(rows.map(card))));
+    const cards = rows.map(card);
+    box.append(sectionTitle(`${title} · ${rows.length}`, ic), h('div', { class: 'grid grid-2' }, animate ? stagger(cards) : cards));
   }
   if (!shown) box.append(emptyState('inbox', 'Nothing here', 'Try another filter.'));
+  if (!animate) scrollTo(0, y);
 }
 load();

@@ -25,16 +25,33 @@ let category = '';
 let d;                               // the latest /sync answer
 
 async function refresh() {
-  d = await api('GET', '/api/mobile/sync');
+  try { d = await api('GET', '/api/mobile/sync'); }
+  catch (e) { if (!d) { body.replaceChildren(emptyState('signal_off', 'Could not load lessons', e.message)); } else say(msg, e.message); return; }
+  const y = scrollY;
   setCredits(d.wallet.balance);
   draw();
+  scrollTo(0, animate ? 0 : y);            // a live refresh keeps your place; a new tab starts at the top
+}
+
+// Destructive buttons ask once more ("Tap again to cancel") instead of a blocking confirm() dialog
+function confirmTwice(btn, text) {
+  if (btn.dataset.armed) return true;
+  btn.dataset.armed = '1';
+  const old = [...btn.childNodes];
+  btn.replaceChildren(icon('close'), text);
+  setTimeout(() => { delete btn.dataset.armed; btn.replaceChildren(...old); }, 3000);
+  return false;
 }
 
 const tabs = h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Lessons' });
 const body = h('div');
 box.append(h('div', { class: 'row' }, tabs), body);
 
+let lastView = '';
+let animate = true;
 function draw() {
+  animate = lastView !== tab;
+  lastView = tab;
   const users = new Map(d.users.map((u) => [u.id, u]));
   const skills = new Map(d.skills.map((s) => [s.id, s]));
   const offers = new Map(d.offers.map((o) => [o.id, o]));
@@ -53,8 +70,13 @@ function bookView(users, skills) {
   const cats = [...new Set(d.skills.map((s) => s.category))].sort();
   const chips = h('div', { class: 'chips', role: 'group', 'aria-label': 'Category' },
     [['', 'All', 'layers'], ...cats.map((c) => [c, c, categoryIconId(c)])].map(([c, label, ic]) =>
-      h('button', { class: `chip ${c ? categoryClass(c) : ''}`, type: 'button', 'aria-pressed': String(category === c), onclick: () => { category = c; draw(); } }, icon(ic), label)));
+      h('button', { class: `chip ${c ? categoryClass(c) : ''}`, type: 'button', 'aria-pressed': String(category === c), onclick: (e) => {
+        category = c;
+        for (const x of chips.children) x.setAttribute('aria-pressed', String(x === e.currentTarget));
+        fill();
+      } }, icon(ic), label)));
   const grid = h('div', { class: 'grid grid-3' });
+  let first = true;
   const fill = () => {
     const q = query.trim().toLowerCase();
     const list = d.offers.filter((o) => o.teacherId !== me.id)
@@ -63,9 +85,12 @@ function bookView(users, skills) {
       .filter((x) => !category || x.skill.category === category)
       .filter((x) => !q || x.skill.name.toLowerCase().includes(q) || x.teacher.fullName.toLowerCase().includes(q))
       .sort((a, b) => (b.o.trusted - a.o.trusted) || (b.o.rating - a.o.rating));
-    grid.replaceChildren(...(list.length ? stagger(list.map(lessonCard)) : [emptyState('calendar', 'No free lessons here', 'Try another word or category.')]));
+    const cards = list.map(lessonCard);
+    grid.replaceChildren(...(list.length ? (first && animate ? stagger(cards) : cards) : [emptyState('calendar', 'No free lessons here', 'Try another word or category.')]));
+    first = false;
   };
-  search.addEventListener('input', () => { query = search.value; fill(); });
+  let typing;
+  search.addEventListener('input', () => { query = search.value; clearTimeout(typing); typing = setTimeout(fill, 120); });
   out.push(h('div', { class: 'card' }, h('div', { class: 'input-icon' }, icon('search'), search), h('div', { class: 'row' }, chips)));
   if (d.wallet.balance < 1) out.push(h('div', { class: 'callout' }, h('span', { class: 'stile gold' }, icon('coin')), h('div', {}, h('h3', {}, 'No credits left'), h('p', {}, 'Teach a lesson to earn one: every hour you teach gives you a credit.'))));
   out.push(grid);
@@ -162,16 +187,20 @@ function bookingCard(b, { skill, slot, teacher, learner, iTeach }, reviewed) {
     card.append(plan, h('div', { class: 'card-foot' },
       h('a', { class: 'btn btn-secondary btn-small', href: jitsi(b), target: '_blank', rel: 'noopener' }, icon('video'), 'Video room'),
       h('button', { class: 'btn btn-secondary btn-small', type: 'button', onclick: async (e) => {
+        const btn = e.currentTarget;            // keep it: e.currentTarget is null again after the first await
         if (!plan.classList.contains('hidden')) { plan.classList.add('hidden'); return; }
-        e.currentTarget.disabled = true;
+        if (plan.firstChild) { plan.classList.remove('hidden'); return; }   // already loaded once: just show it
+        btn.disabled = true;
         try { const r = await api('POST', `/api/mobile/bookings/${b.id}/plan`, {}); plan.replaceChildren(h('p', { class: 'label' }, r.source === 'ai' ? 'Lesson plan · by AI' : 'Lesson plan'), h('pre', {}, r.plan)); plan.classList.remove('hidden'); }
         catch (err) { say(note, err.message, 'error'); }
-        e.currentTarget.disabled = false;
+        btn.disabled = false;
       } }, icon('sparkle'), 'Lesson plan'),
       h('button', { class: 'btn btn-danger btn-small', type: 'button', onclick: async (e) => {
-        e.currentTarget.disabled = true;
+        const btn = e.currentTarget;
+        if (!confirmTwice(btn, 'Tap again to cancel')) return;
+        btn.disabled = true;
         try { await api('POST', `/api/mobile/bookings/${b.id}/cancel`, {}); toast(iTeach ? 'Lesson cancelled. The learner gets the credit back.' : 'Lesson cancelled. Your credit is back.'); await refresh(); }
-        catch (err) { say(note, err.message, 'error'); e.currentTarget.disabled = false; }
+        catch (err) { say(note, err.message, 'error'); btn.disabled = false; }
       } }, icon('close'), 'Cancel')));
   }
 
@@ -180,15 +209,18 @@ function bookingCard(b, { skill, slot, teacher, learner, iTeach }, reviewed) {
     else {
       let rating = 5;
       const row = h('div', { class: 'row star-pick', role: 'radiogroup', 'aria-label': 'Rating' });
-      const paint = () => [...row.children].forEach((x, i) => x.classList.toggle('on', i < rating));
+      const paint = () => [...row.children].forEach((x, i) => { x.classList.toggle('on', i < rating); x.setAttribute('aria-checked', String(i + 1 === rating)); });
       for (let n = 1; n <= 5; n++) row.append(h('button', { type: 'button', role: 'radio', 'aria-label': `${n} star${n > 1 ? 's' : ''}`, onclick: () => { rating = n; paint(); } }, icon('star_fill')));
       paint();
       const comment = h('input', { maxlength: 300, placeholder: 'What was good? (optional)', 'aria-label': 'Comment' });
       const form = h('form', { class: 'review' }, h('p', { class: 'label' }, 'Rate this lesson'), row, h('div', { class: 'row' }, comment, h('button', { class: 'btn btn-secondary btn-small', type: 'submit' }, icon('send'), 'Send')));
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
+        const send = form.querySelector('button[type=submit]');
+        if (send.disabled) return;
+        send.disabled = true;
         try { await api('POST', `/api/mobile/bookings/${b.id}/review`, { rating, comment: comment.value }); toast('Thank you for the rating!'); await refresh(); }
-        catch (err) { say(note, err.message, 'error'); }
+        catch (err) { say(note, err.message, 'error'); send.disabled = false; }
       });
       card.append(form);
     }
@@ -199,4 +231,4 @@ function bookingCard(b, { skill, slot, teacher, learner, iTeach }, reviewed) {
 await refresh();
 // Somebody booked or finished a lesson (on the web or in the app): show the new state
 let t;
-window.addEventListener('live:changed', () => { clearTimeout(t); t = setTimeout(() => { if (!document.querySelector('.lesson input:focus')) refresh(); }, 400); });
+window.addEventListener('live:changed', () => { clearTimeout(t); t = setTimeout(() => { if (!document.querySelector('#content input:focus, #content textarea:focus')) refresh(); }, 400); });

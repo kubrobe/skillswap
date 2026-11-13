@@ -33,15 +33,21 @@ function section({ title, iconId, path, withLevel, addLabel, emptyTitle, emptyTe
     desc,
     h('button', { class: 'btn btn-primary btn-block', type: 'submit' }, icon('plus'), 'Add'));
 
+  let first = true;
   async function load() {
-    const rows = await api('GET', `/api/me/${path}`);
+    let rows;
+    try { rows = await api('GET', `/api/me/${path}`); } catch (err) { say(msg, err.message); return; }
     list.replaceChildren();
     if (!rows.length) list.append(emptyState(iconId, emptyTitle, emptyText));
-    list.append(...stagger(rows.map((r) => h('div', { class: 'card skill-row has-remove' },
+    const animate = first; first = false;      // only the first list animates in; adding a skill does not replay it
+    list.append(...(animate ? stagger : (x) => x)(rows.map((r) => h('div', { class: 'card skill-row has-remove' },
       skillTile(r.skill),
       h('div', {}, h('h3', {}, r.skill), r.level ? tier(r.level) : null, r.description ? h('p', {}, r.description) : null),
-      h('button', { class: 'icon-btn card-remove', type: 'button', title: 'Remove', 'aria-label': `Remove ${r.skill}`, onclick: async () => {
-        await api('DELETE', `/api/me/${path}/${r.id}`); toast(`${r.skill} removed`); load();
+      h('button', { class: 'icon-btn card-remove', type: 'button', title: 'Remove', 'aria-label': `Remove ${r.skill}`, onclick: async (e) => {
+        const btn = e.currentTarget;
+        btn.disabled = true;
+        try { await api('DELETE', `/api/me/${path}/${r.id}`); toast(`${r.skill} removed`); load(); }
+        catch (err) { say(msg, err.message); btn.disabled = false; }
       } }, icon('trash'))))));
   }
 
@@ -49,6 +55,9 @@ function section({ title, iconId, path, withLevel, addLabel, emptyTitle, emptyTe
     e.preventDefault();
     const skillId = $(`#${path}-skill`).value;
     if (!skillId) return say(msg, 'Please choose a skill');
+    const add = form.querySelector('button[type=submit]');
+    if (add.disabled) return;
+    add.disabled = true;
     try {
       await api('POST', `/api/me/${path}`, {
         skill_id: skillId,
@@ -59,6 +68,7 @@ function section({ title, iconId, path, withLevel, addLabel, emptyTitle, emptyTe
       toast('Skill added. Your matches are updated.');
       load();
     } catch (err) { say(msg, err.message); }
+    add.disabled = false;
   });
 
   load();
