@@ -9,6 +9,7 @@ import { loadUser, authRoutes } from './src/auth.js';
 import { apiRoutes } from './src/api.js';
 import { mobileRoutes } from './src/mobile.js';
 import { telegramRoutes, startTelegram } from './src/telegram.js';
+import { googleRoutes } from './src/google.js';
 import { applyMigrations } from './src/migrations.js';
 import { HttpError } from './src/validate.js';
 
@@ -21,8 +22,18 @@ app.use((_req, res, next) => {
   res.set({
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
-    'Referrer-Policy': 'same-origin',
-    'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; frame-ancestors 'none'",
+    // Google's sign-in button needs the page's origin in the Referer header (no full URLs are sent)
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    // Our own files only, plus exactly what Google's sign-in button needs (its script, frame and styles)
+    'Content-Security-Policy': [
+      "default-src 'self'",
+      "img-src 'self' data: https://lh3.googleusercontent.com",
+      "script-src 'self' https://accounts.google.com/gsi/client",
+      "frame-src https://accounts.google.com/gsi/",
+      "connect-src 'self' https://accounts.google.com/gsi/",
+      "style-src 'self' https://accounts.google.com/gsi/style",
+      "frame-ancestors 'none'",
+    ].join('; '),
   });
   next();
 });
@@ -59,6 +70,7 @@ for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
 }
 
 authRoutes(app);
+googleRoutes(app);     // Sign in with Google: website + Android app (public routes)
 telegramRoutes(app);   // Telegram calls this webhook (booking alerts, reminders, /next)
 mobileRoutes(app);     // JSON API used by the Android app (before apiRoutes, which requires a login for all of /api)
 apiRoutes(app);

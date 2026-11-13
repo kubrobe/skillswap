@@ -23,7 +23,7 @@ const later = (work) => Promise.resolve().then(work).catch((e) => console.error(
 const WELCOME_CREDITS = 5;     // a new member can learn 5 hours before teaching anything
 
 // Gives the one-time welcome gift (website accounts get it on their first app visit).
-const giveWelcome = (db, userId) => db.query(
+export const giveWelcome = (db, userId) => db.query(
   `INSERT INTO credit_ledger (user_id, amount, reason) VALUES ($1, $2, 'welcome')
    ON CONFLICT (user_id) WHERE reason = 'welcome' DO NOTHING`, [userId, WELCOME_CREDITS]);
 
@@ -483,7 +483,7 @@ export function mobileRoutes(app) {
       `SELECT u.id, u.password_hash, u.email, p.display_name, p.bio
          FROM users u JOIN profiles p ON p.user_id = u.id WHERE u.email = $1`, [email]);
     const row = r.rows[0];
-    const ok = row && (await bcrypt.compare(String(req.body.password || ''), row.password_hash));
+    const ok = row?.password_hash && (await bcrypt.compare(String(req.body.password || ''), row.password_hash));
     if (!ok) throw new HttpError(401, 'Wrong email or password');   // same text for both cases
     const { token } = await createSessionToken(row.id);
     res.json({ token, user: publicUser(row) });

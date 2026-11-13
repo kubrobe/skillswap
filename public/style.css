@@ -925,3 +925,7 @@ button.chip[aria-pressed="true"] > .icon { color: inherit; }
   .milestone select { order: 3; flex: 1 1 100%; margin-left: 40px; width: calc(100% - 40px); }
   .milestone h3 { overflow-wrap: anywhere; }
 }
+/* Sign in with Google: Google draws the button inside this slot; "or" line before the email form */
+.google-slot { display: flex; justify-content: center; min-height: 44px; margin-bottom: 4px; }
+.or-line { display: flex; align-items: center; gap: 12px; margin: 14px 0; color: var(--faint); font-size: .85rem; }
+.or-line::before, .or-line::after { content: ""; flex: 1; height: 1px; background: var(--line-2); }

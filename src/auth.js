@@ -20,7 +20,7 @@ export async function createSessionToken(userId) {
 
 export const deleteSession = (token) => query('DELETE FROM sessions WHERE token_hash = $1', [sha256(token)]);
 
-async function startSession(res, userId) {
+export async function startSession(res, userId) {
   const { token, expires } = await createSessionToken(userId);
   res.cookie(COOKIE, token, {
     httpOnly: true,            // JavaScript in the page cannot read it (protects against XSS theft)
@@ -81,7 +81,7 @@ export function authRoutes(app) {
   app.post('/api/login', async (req, res) => {
     const email = cleanEmail(req.body.email);
     const r = await query('SELECT id, password_hash FROM users WHERE email = $1', [email]);
-    const ok = r.rows[0] && (await bcrypt.compare(String(req.body.password || ''), r.rows[0].password_hash));
+    const ok = r.rows[0]?.password_hash && (await bcrypt.compare(String(req.body.password || ''), r.rows[0].password_hash));
     // Same message for "no such email" and "wrong password" so attackers learn nothing.
     if (!ok) throw new HttpError(401, 'Wrong email or password');
     await startSession(res, r.rows[0].id);

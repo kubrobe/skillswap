@@ -120,6 +120,7 @@ await run('09_sample_data.sql');
 await run('10_checkin.sql');
 await run('11_impact_history.sql');
 await run('12_telegram.sql');
+await run('13_google.sql');
 
 const counts = await pool.query(`SELECT
   (SELECT count(*) FROM users) users, (SELECT count(*) FROM skills) skills,

@@ -16,3 +16,5 @@ services:
         sync: false        # only if needed (see docs/DEPLOY.md)
       - key: MONGODB_URI
         sync: false        # optional: your Atlas connection string
+      - key: GOOGLE_CLIENT_ID
+        sync: false        # optional: Google sign-in (see docs/GOOGLE_SIGN_IN.md)
