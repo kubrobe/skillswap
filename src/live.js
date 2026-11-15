@@ -55,6 +55,11 @@ export function notifyAllExcept(userId, text) {
 
 export const connectedCount = () => [...clients.values()].reduce((n, s) => n + s.size, 0);
 
+/** Any small event for one person's phones, e.g. "room" (who is waiting in a lesson's video room). */
+export function sendEvent(userId, type, data) {
+  for (const res of clients.get(userId) || []) send(res, type, data);
+}
+
 /** Credits changed for this person: the phone plays the flying-coin animation (+1 / -1). */
 export function sendCredit(userId, amount) {
   for (const res of clients.get(userId) || []) send(res, 'credit', { amount });

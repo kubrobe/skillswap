@@ -27,13 +27,19 @@ same PostgreSQL database on Supabase. An account made on the website works in th
 | POST | `/api/mobile/register` | new account → `{token, user}` |
 | POST | `/api/mobile/login` | `{token, user}` |
 | POST | `/api/mobile/logout` | ends the session |
-| GET  | `/api/mobile/sync` | the whole snapshot: users, skills, offers, slots, bookings, reviews, wallet, wishes, matches, last 12 activity lines |
+| GET  | `/api/mobile/sync` | the whole snapshot: users, skills, offers, slots, bookings, reviews, wallet, wishes, matches, last 12 activity lines, open video `rooms` of my lessons |
 | POST/PATCH | `/api/mobile/me` | change name and bio |
 | POST | `/api/mobile/offers` | publish a lesson: offer + its time slots in **one transaction** |
 | POST | `/api/mobile/bookings` | book a slot (transaction + `SELECT … FOR UPDATE`) |
 | POST | `/api/mobile/bookings/:id/cancel` | learner **or teacher** cancels; the slot becomes free again |
 | POST | `/api/mobile/bookings/:id/complete` | learner checks in with the teacher's 4-digit code (QR); the slot is free again, the teacher gets +1 |
 | POST | `/api/mobile/bookings/:id/review` | rate a finished lesson once (1–5) |
+| POST | `/api/mobile/bookings/:id/room` | **video lesson:** open the lesson's room (learner or teacher, lesson must be booked) → `{roomId, you, participants, startedAt, expiresAt, iceServers, turn}` |
+| GET  | `/api/mobile/rooms/:roomId/events` | join the room: SSE stream `room-state`, `peer-joined`, `peer-left`, `signal`, `room-ended` |
+| POST | `/api/mobile/rooms/:roomId/signal` | `{id, to, type, payload}` (`offer` / `answer` / `candidate` / `media` / `bye`), relayed to one member, never stored |
+| POST | `/api/mobile/rooms/:roomId/leave` | I leave (the room stays for the other person) |
+| POST | `/api/mobile/rooms/:roomId/end` | end the call for both |
+| GET  | `/api/mobile/ice` | STUN + temporary TURN credentials |
 
 ## New tables (db/07_mobile.sql)
 * `offer_slots` – weekly times of a `user_offers` row (weekday 1–7, hour 0–23, `is_booked`)
@@ -87,3 +93,17 @@ only as a cache so screens open instantly; every change goes to the server first
   **Setup:** in Telegram open @BotFather → `/newbot` → copy the token → Render → Environment →
   `TELEGRAM_BOT_TOKEN` = the token → Save. On start the server sets its webhook itself (`RENDER_EXTERNAL_URL`).
   Optional in @BotFather: `/setcommands` → `next - My upcoming lessons`, `credits - My credit balance`, `stop - Unlink`.
+
+## Video lessons (db/14_video_rooms.sql, src/rooms.js)
+Lessons happen **inside the app** (native WebRTC), not on an external meeting website. Details: `docs/VIDEO_ROOMS.md`.
+* A room belongs to one **booked** lesson; only its learner and teacher can open or join it (outsiders get 404).
+  One active room per lesson (partial unique index), unguessable UUID ids, 3-hour limit.
+* Audio and video go **phone to phone**, encrypted by WebRTC. The server only relays the connection messages
+  (SDP, ICE candidates) between the two members and **never stores or logs them**. Nothing is recorded.
+* Whoever is already in the room makes the offer to the newcomer, so two people joining at once never clash.
+* A dropped connection gets 20 s to come back before the other person sees "left". An empty room closes after
+  2 minutes; cancelling or checking in to the lesson closes its room at once.
+* The main `/events` stream gets `room` events (who is in the room of which lesson), and the other person gets a
+  `notice` + Telegram message "Aziza is waiting for you in the Python video lesson".
+* TURN (relays media when phones cannot reach each other directly): set `TURN_KEY_ID` and `TURN_KEY_API_TOKEN`
+  (Cloudflare Realtime TURN). The phone only ever gets credentials that expire. Without them: STUN only.

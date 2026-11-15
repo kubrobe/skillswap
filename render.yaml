@@ -18,3 +18,7 @@ services:
         sync: false        # optional: your Atlas connection string
       - key: GOOGLE_CLIENT_ID
         sync: false        # optional: Google sign-in (see docs/GOOGLE_SIGN_IN.md)
+      - key: TURN_KEY_ID
+        sync: false        # video lessons: Cloudflare TURN key id (see docs/VIDEO_ROOMS.md)
+      - key: TURN_KEY_API_TOKEN
+        sync: false        # video lessons: Cloudflare TURN key API token (secret)

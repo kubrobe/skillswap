@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { loadUser, authRoutes } from './src/auth.js';
 import { apiRoutes } from './src/api.js';
 import { mobileRoutes } from './src/mobile.js';
+import { roomRoutes } from './src/rooms.js';
 import { telegramRoutes, startTelegram } from './src/telegram.js';
 import { googleRoutes } from './src/google.js';
 import { applyMigrations } from './src/migrations.js';
@@ -73,6 +74,7 @@ authRoutes(app);
 googleRoutes(app);     // Sign in with Google: website + Android app (public routes)
 telegramRoutes(app);   // Telegram calls this webhook (booking alerts, reminders, /next)
 mobileRoutes(app);     // JSON API used by the Android app (before apiRoutes, which requires a login for all of /api)
+roomRoutes(app);       // native video lessons in the app: rooms + WebRTC signalling (src/rooms.js)
 apiRoutes(app);
 
 app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Not found')));

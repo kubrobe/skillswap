@@ -16,6 +16,7 @@ import { aiPlan, templatePlan, dayName } from './plan.js';
 import { understand, rankOffers, aiMatch } from './matchmaker.js';
 import { telegramAppRoutes } from './telegram.js';
 import { mobileSchemaReady } from './migrations.js';
+import { endRoomsForBooking, myRooms } from './rooms.js';
 
 // Live messages are sent AFTER the answer; a problem there must never break the request.
 const later = (work) => Promise.resolve().then(work).catch((e) => console.error('live update failed:', e.message));
@@ -226,7 +227,8 @@ export function mobileRoutes(app) {
   // Public "are you awake?" check. Also handy to test the deployment in a browser.
   app.get('/api/mobile/health', async (_req, res) => {
     const database = await mobileSchemaReady();      // also proves the database answers
-    res.json({ ok: true, api: 'skillswap-mobile', version: 3, database: database ? 'ready' : 'tables missing' });
+    res.json({ ok: true, api: 'skillswap-mobile', version: 4, database: database ? 'ready' : 'tables missing',
+      videoRooms: true, turn: Boolean(process.env.TURN_KEY_ID && process.env.TURN_KEY_API_TOKEN) });
   });
 
   // Community impact, the same numbers for everyone (no login, no personal data).
@@ -496,8 +498,8 @@ export function mobileRoutes(app) {
   });
 
   app.get('/api/mobile/sync', requireAuth, async (req, res) => {
-    const data = await snapshot(req.user.id);
-    res.json({ user: publicUser({ ...req.user, id: req.user.id }), ...data });
+    const [data, rooms] = await Promise.all([snapshot(req.user.id), myRooms(req.user.id)]);
+    res.json({ user: publicUser({ ...req.user, id: req.user.id }), ...data, rooms });
   });
 
   // POST and PATCH both work: Android's built-in HttpURLConnection cannot send PATCH.
@@ -604,6 +606,7 @@ export function mobileRoutes(app) {
       const other = req.user.id === i.learner_id ? i.teacher_id : i.learner_id;
       const who = req.user.id === i.learner_id ? i.learner : i.teacher;
       notify(other, `${who} cancelled the ${i.skill} lesson · ${i.when}`);
+      await endRoomsForBooking(id, 'booking_cancelled');     // its video room closes too
       broadcastChanged();
     });
   });
@@ -629,6 +632,7 @@ export function mobileRoutes(app) {
       notify(i.teacher_id, `🪙 ${i.learner} checked in to your ${i.skill} lesson. You earned 1 credit!`);
       sendCredit(i.teacher_id, 1);
       broadcastActivity(`${i.teacher} taught ${i.skill} · +1 🪙`);
+      await endRoomsForBooking(id, 'booking_done');          // its video room closes too
       broadcastChanged();
     });
   });
