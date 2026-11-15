@@ -31,7 +31,7 @@ export const roomConfig = {
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const SIGNAL_TYPES = new Set(['offer', 'answer', 'candidate', 'media', 'bye']);
+const SIGNAL_TYPES = new Set(['offer', 'answer', 'candidate', 'media', 'bye', 'renegotiate']);
 const MAX_SDP = 16_000;
 const MAX_CANDIDATE = 1_000;
 

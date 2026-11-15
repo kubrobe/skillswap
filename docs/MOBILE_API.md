@@ -36,7 +36,7 @@ same PostgreSQL database on Supabase. An account made on the website works in th
 | POST | `/api/mobile/bookings/:id/review` | rate a finished lesson once (1–5) |
 | POST | `/api/mobile/bookings/:id/room` | **video lesson:** open the lesson's room (learner or teacher, lesson must be booked) → `{roomId, you, participants, startedAt, expiresAt, iceServers, turn}` |
 | GET  | `/api/mobile/rooms/:roomId/events` | join the room: SSE stream `room-state`, `peer-joined`, `peer-left`, `signal`, `room-ended` |
-| POST | `/api/mobile/rooms/:roomId/signal` | `{id, to, type, payload}` (`offer` / `answer` / `candidate` / `media` / `bye`), relayed to one member, never stored |
+| POST | `/api/mobile/rooms/:roomId/signal` | `{id, to, type, payload}` (`offer` / `answer` / `candidate` / `media` / `bye` / `renegotiate`), relayed to one member, never stored |
 | POST | `/api/mobile/rooms/:roomId/leave` | I leave (the room stays for the other person) |
 | POST | `/api/mobile/rooms/:roomId/end` | end the call for both |
 | GET  | `/api/mobile/ice` | STUN + temporary TURN credentials |

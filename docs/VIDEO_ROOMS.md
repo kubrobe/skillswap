@@ -24,6 +24,7 @@ Phone → server: `POST /api/mobile/rooms/:roomId/signal`
 | `candidate` | `{ candidate, sdpMid, sdpMLineIndex }` |
 | `media` | `{ audio: bool, video: bool }`: mic/camera on or off, so the other side can show it |
 | `bye` | `{}`: polite goodbye before leaving |
+| `renegotiate` | `{}`: "I have no connection to you, please send me a fresh offer" (e.g. my app restarted within the grace period) |
 
 Server → phone (SSE on `GET /api/mobile/rooms/:roomId/events`):
 | event | data |

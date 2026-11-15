@@ -314,6 +314,7 @@ test('cleanSignal keeps only known fields of known types', () => {
   assert.deepEqual(cleanSignal({ id: 'a', to: 7, type: 'offer', payload: { sdp: 'v=0', iceRestart: true } }).payload,
     { sdp: 'v=0', iceRestart: true });
   assert.deepEqual(cleanSignal({ id: 'a', to: 7, type: 'bye', payload: { x: 1 } }).payload, {});
+  assert.deepEqual(cleanSignal({ id: 'a', to: 7, type: 'renegotiate' }).payload, {});
   for (const bad of [
     {}, { id: 'a', to: 1, type: 'hack' }, { id: 'a', to: 0, type: 'bye' }, { id: '', to: 1, type: 'bye' },
     { id: 'a', to: 1, type: 'candidate', payload: { candidate: 'c', sdpMLineIndex: -1 } },
