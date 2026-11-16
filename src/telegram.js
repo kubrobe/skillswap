@@ -59,8 +59,11 @@ export function telegramNotify(userId, text) {
     .catch((e) => console.error('Telegram notify:', e.message));
 }
 
-const jitsi = (id, createdAt) =>
-  `https://meet.jit.si/SkillSwap-${id}-${(new Date(createdAt).getTime() % 1_000_000_000).toString(36)}`;
+// The lesson's video room on our own site (the same room as the app; no meeting site, no moderator).
+const videoRoom = (id) => {
+  const site = (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/$/, '');
+  return site ? `${site}/call?lesson=${id}` : 'open the lesson in the SkillSwap app';
+};
 
 /** Upcoming lessons of a user, each with its next date in Tashkent time. */
 async function upcomingLessons(userId) {
@@ -172,7 +175,7 @@ export async function sendDueReminders() {
       [l.id, l.lesson_at]);
     if (fresh.rowCount === 0) continue;                // already reminded for this week
     const when = `${DAYS[l.weekday - 1]} ${String(l.hour).padStart(2, '0')}:00`;
-    const room = jitsi(l.id, l.created_at);
+    const room = videoRoom(l.id);
     telegramNotify(l.learner_id, `⏰ In 1 hour: ${l.skill} with ${l.teacher} (${when}).\nVideo room: ${room}`);
     telegramNotify(l.teacher_id, `⏰ In 1 hour you teach ${l.skill} to ${l.learner} (${when}).\nShow your check-in QR at the end.\nVideo room: ${room}`);
     sent += 1;

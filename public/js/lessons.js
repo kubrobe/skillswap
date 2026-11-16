@@ -16,8 +16,8 @@ box.before(msg);
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const slotLabel = (s) => `${DAYS[(s.day - 1 + 7) % 7]} ${String(s.hour).padStart(2, '0')}:00`;
-// The same video room as the app: both people open the same link
-const jitsi = (b) => `https://meet.jit.si/SkillSwap-${b.id}-${(Math.floor(b.createdAt) % 1e9).toString(36)}`;
+// The same video room as the app (our own server, no meeting site, no moderator needed)
+const videoRoom = (b) => `/call?lesson=${b.id}`;
 
 let tab = new URLSearchParams(location.search).get('tab') === 'mine' ? 'mine' : 'book';
 let query = '';
@@ -185,7 +185,7 @@ function bookingCard(b, { skill, slot, teacher, learner, iTeach }, reviewed) {
     }
     const plan = h('div', { class: 'plan hidden' });
     card.append(plan, h('div', { class: 'card-foot' },
-      h('a', { class: 'btn btn-secondary btn-small', href: jitsi(b), target: '_blank', rel: 'noopener' }, icon('video'), 'Video room'),
+      h('a', { class: 'btn btn-secondary btn-small', href: videoRoom(b) }, icon('video'), 'Video room'),
       h('button', { class: 'btn btn-secondary btn-small', type: 'button', onclick: async (e) => {
         const btn = e.currentTarget;            // keep it: e.currentTarget is null again after the first await
         if (!plan.classList.contains('hidden')) { plan.classList.add('hidden'); return; }
