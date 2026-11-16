@@ -22,3 +22,7 @@ services:
         sync: false        # video lessons: Cloudflare TURN key id (see docs/VIDEO_ROOMS.md)
       - key: TURN_KEY_API_TOKEN
         sync: false        # video lessons: Cloudflare TURN key API token (secret)
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false        # Telegram login + booking alerts: the bot token from @BotFather (secret)
+      - key: TELEGRAM_BOT_USERNAME
+        sync: false        # optional: the bot's username without "@"

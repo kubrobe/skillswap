@@ -13,6 +13,8 @@ import { query, withTransaction } from './db.js';
 import { HttpError } from './validate.js';
 import { startSession, createSessionToken } from './auth.js';
 import { giveWelcome } from './mobile.js';
+import { mobileMe } from './profiles.js';
+import { telegramConfigured } from './telegram.js';
 
 // The WEB client id from Google Cloud. The Android app asks Google for a token for this same id
 // (serverClientId), so one id checks tokens from both the website and the phone.
@@ -68,8 +70,10 @@ const profileOf = async (id) => (await query(
 
 export function googleRoutes(app) {
   // The pages ask whether to show the Google button (no button until the server is set up).
-  app.get('/api/config', (_req, res) => res.json({ googleClientId: clientId() || null }));
-  app.get('/api/mobile/config', (_req, res) => res.json({ googleClientId: clientId() || null }));   // the Android app
+  // telegramLogin: show "Continue with Telegram" only when the bot is set up on this server.
+  const config = (_req, res) => res.json({ googleClientId: clientId() || null, telegramLogin: telegramConfigured() });
+  app.get('/api/config', config);
+  app.get('/api/mobile/config', config);   // the Android app
 
   // Website: Google's button gives the page a "credential" (the ID token) -> login cookie
   app.post('/api/auth/google', async (req, res) => {
@@ -86,6 +90,6 @@ export function googleRoutes(app) {
     const { id, isNew } = await findOrCreateGoogleUser(g);
     const { token } = await createSessionToken(id);
     const p = await profileOf(id);
-    res.status(isNew ? 201 : 200).json({ token, isNew, user: { id: p.id, fullName: p.display_name, email: p.email, bio: p.bio || '' } });
+    res.status(isNew ? 201 : 200).json({ token, isNew, user: (await mobileMe(id)) || { id: p.id, fullName: p.display_name, email: p.email, bio: p.bio || '' } });
   });
 }

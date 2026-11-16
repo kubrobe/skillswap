@@ -7,13 +7,17 @@
 // Telegram opens the chat, the user taps Start, and the bot receives "/start <code>".
 // Telegram calls our webhook (an incoming request also wakes the free Render server).
 //
-// Settings (Render → Environment): TELEGRAM_BOT_TOKEN from @BotFather, optional TELEGRAM_BOT_USERNAME.
+// Log in with Telegram uses the same bot: the login page asks for t.me/<bot>?start=login_<token>, the person
+// taps Start, and the bot marks that one-time token as confirmed (the rest is in src/telegram-login.js).
+//
+// Settings (Render → Environment): TELEGRAM_BOT_TOKEN from @BotFather, optional TELEGRAM_BOT_USERNAME
+// (the short names BOT_TOKEN / BOT_USERNAME work too). They live ONLY in environment variables, never in the code.
 // Without a token every function here does nothing, so the rest of the app works the same.
 import crypto from 'node:crypto';
 import { query } from './db.js';
 import { HttpError } from './validate.js';
 
-const token = () => process.env.TELEGRAM_BOT_TOKEN || '';
+const token = () => process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN || '';
 const apiBase = () => process.env.TELEGRAM_API_BASE || 'https://api.telegram.org';
 export const telegramConfigured = () => token().length > 0;
 // Telegram sends this back in a header, so only Telegram can call the webhook.
@@ -21,14 +25,14 @@ const webhookSecret = () => crypto.createHash('sha256').update(`skillswap:${toke
 const TZ = 'Asia/Tashkent';
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-async function callTelegram(method, body) {
+async function callTelegram(method, body, timeoutMs = 10_000) {
   if (!telegramConfigured()) return null;
   try {
     const res = await fetch(`${apiBase()}/bot${token()}/${method}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     return await res.json().catch(() => null);
   } catch (e) {
@@ -40,8 +44,9 @@ async function callTelegram(method, body) {
 const sendTo = (chatId, text) => callTelegram('sendMessage', { chat_id: chatId, text, disable_web_page_preview: true });
 
 let username = null;
-async function botUsername() {
-  if (process.env.TELEGRAM_BOT_USERNAME) return process.env.TELEGRAM_BOT_USERNAME.replace(/^@/, '');
+export async function botUsername() {
+  const fixed = process.env.TELEGRAM_BOT_USERNAME || process.env.BOT_USERNAME;
+  if (fixed) return fixed.replace(/^@/, '');
   if (!username) username = (await callTelegram('getMe', {}))?.result?.username || null;
   return username;
 }
@@ -80,6 +85,22 @@ async function handleMessage(msg) {
     return;
   }
   const [command, arg] = text.split(/\s+/, 2);
+  const from = msg.from || {};
+  const tgName = /^[A-Za-z][A-Za-z0-9_]{3,31}$/.test(from.username || '') ? from.username : null;
+
+  // Log in with Telegram: "/start login_<token>". Only in a private chat, so the token is tied to ONE person.
+  if (command === '/start' && arg?.startsWith(LOGIN_PREFIX)) {
+    const personal = from.id && !from.is_bot && (!msg.chat.type || msg.chat.type === 'private');
+    const ok = personal && (await query(
+      `UPDATE telegram_login_tokens
+          SET telegram_id = $2, tg_username = $3, tg_first_name = $4, confirmed_at = now()
+        WHERE token_hash = $1 AND confirmed_at IS NULL AND created_at > now() - interval '${LOGIN_MINUTES} minutes'`,
+      [loginTokenHash(arg.slice(LOGIN_PREFIX.length)), from.id, tgName, String(from.first_name || '').slice(0, 64)])).rowCount > 0;
+    return sendTo(chatId, ok
+      ? "✅ You're logged in to SkillSwap. Go back to the app."
+      : 'This login link has expired. Go back to SkillSwap and tap "Continue with Telegram" again.');
+  }
+
   const linked = (await query('SELECT user_id FROM telegram_links WHERE chat_id = $1', [chatId])).rows[0];
 
   if (command === '/start' && arg) {
@@ -89,6 +110,15 @@ async function handleMessage(msg) {
     if (!code) return sendTo(chatId, 'This link has expired. Open SkillSwap → Profile → Connect Telegram again.');
     await query('DELETE FROM telegram_links WHERE chat_id = $1 OR user_id = $2', [chatId, code.user_id]);
     await query('INSERT INTO telegram_links (user_id, chat_id) VALUES ($1, $2)', [code.user_id, chatId]);
+    // The profile learns the Telegram username (for the "Message on Telegram" button), and this Telegram
+    // account can log in to this SkillSwap account from now on (unless it already belongs to another account).
+    if (from.id) {
+      await query(
+        `UPDATE users SET telegram_username = COALESCE($2, telegram_username),
+                          telegram_id = CASE WHEN EXISTS (SELECT 1 FROM users o WHERE o.telegram_id = $3 AND o.id <> $1)
+                                             THEN telegram_id ELSE $3 END
+          WHERE id = $1`, [code.user_id, tgName, from.id]);
+    }
     const name = (await query('SELECT display_name FROM profiles WHERE user_id = $1', [code.user_id])).rows[0]?.display_name || '';
     return sendTo(chatId,
       `✅ Connected, ${name.split(' ')[0]}! You will get booking alerts and a reminder 1 hour before each lesson.\n` +
@@ -186,6 +216,34 @@ export function telegramAppRoutes(app, requireAuth) {
   });
 }
 
+// ---------- Log in with Telegram: the one-time token ----------
+export const LOGIN_PREFIX = 'login_';      // tells a login token apart from a "Connect Telegram" code
+export const LOGIN_MINUTES = 5;
+/** Only this hash is stored, so a copy of the database cannot be used to log in. */
+export const loginTokenHash = (raw) => crypto.createHash('sha256').update(String(raw)).digest('hex');
+
+/**
+ * Local development (no public address, so Telegram cannot call a webhook): ask Telegram for new messages
+ * with long polling. Never used on Render, and it never removes a webhook: if this bot already has one
+ * (the live server), Telegram answers 409 and polling simply stops.
+ */
+async function pollUpdates() {
+  console.log('Telegram: no PUBLIC_URL, reading messages with long polling (getUpdates)');
+  let offset = 0;
+  for (;;) {
+    const r = await callTelegram('getUpdates', { offset, timeout: 25, allowed_updates: ['message'] }, 40_000);
+    if (r?.error_code === 409) {
+      console.error('Telegram: this bot already has a webhook (another server uses it). Long polling stopped.');
+      return;
+    }
+    if (!r?.ok) { await new Promise((wait) => setTimeout(wait, 5_000)); continue; }
+    for (const update of r.result || []) {
+      offset = update.update_id + 1;
+      try { if (update.message) await handleMessage(update.message); } catch (e) { console.error('Telegram update:', e.message); }
+    }
+  }
+}
+
 /** On server start: point Telegram at our webhook and check for due reminders every 5 minutes. */
 export function startTelegram() {
   if (!telegramConfigured()) return;
@@ -196,6 +254,8 @@ export function startTelegram() {
       secret_token: webhookSecret(),
       allowed_updates: ['message'],
     }).then((r) => console.log('Telegram webhook:', r?.ok ? 'set' : r?.description || 'failed'));
+  } else {
+    pollUpdates().catch((e) => console.error('Telegram polling:', e.message));
   }
   setInterval(() => sendDueReminders().catch((e) => console.error('Telegram reminders:', e.message)), 5 * 60_000);
 }

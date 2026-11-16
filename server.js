@@ -11,6 +11,7 @@ import { mobileRoutes } from './src/mobile.js';
 import { roomRoutes } from './src/rooms.js';
 import { telegramRoutes, startTelegram } from './src/telegram.js';
 import { googleRoutes } from './src/google.js';
+import { telegramLoginRoutes } from './src/telegram-login.js';
 import { applyMigrations } from './src/migrations.js';
 import { HttpError } from './src/validate.js';
 
@@ -73,6 +74,7 @@ for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
 authRoutes(app);
 googleRoutes(app);     // Sign in with Google: website + Android app (public routes)
 telegramRoutes(app);   // Telegram calls this webhook (booking alerts, reminders, /next)
+telegramLoginRoutes(app);   // "Continue with Telegram": website + Android app (public routes)
 mobileRoutes(app);     // JSON API used by the Android app (before apiRoutes, which requires a login for all of /api)
 roomRoutes(app);       // native video lessons in the app: rooms + WebRTC signalling (src/rooms.js)
 apiRoutes(app);
