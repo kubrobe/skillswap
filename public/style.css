@@ -929,3 +929,16 @@ button.chip[aria-pressed="true"] > .icon { color: inherit; }
 .google-slot { display: flex; justify-content: center; min-height: 44px; margin-bottom: 4px; }
 .or-line { display: flex; align-items: center; gap: 12px; margin: 14px 0; color: var(--faint); font-size: .85rem; }
 .or-line::before, .or-line::after { content: ""; flex: 1; height: 1px; background: var(--line-2); }
+
+/* ---- Continue with Telegram (login + signup), contact buttons, @username ---- */
+.btn-telegram { color: #fff; background: #2aabee; border-color: #2aabee; }
+.tg-login .btn-telegram { margin-top: 8px; }
+.btn-telegram:hover { background: #229ed9; border-color: #229ed9; }
+.btn-telegram:disabled { opacity: .6; cursor: default; }
+.tg-note { margin: 8px 0 0; color: var(--muted); font-size: .9rem; text-align: center; }
+.handle { color: var(--muted); font-size: .92rem; margin: 0 0 4px; }
+.contact-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.contact-locked { display: flex; align-items: center; gap: 6px; color: var(--muted); margin: 12px 0 0; }
+.name-check { font-size: .85rem; margin-top: 4px; min-height: 1.2em; }
+.name-check.ok { color: #2e9e5b; }
+.name-check.bad { color: #d9534f; }

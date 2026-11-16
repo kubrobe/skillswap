@@ -48,8 +48,8 @@ export async function handleAuthForm(endpoint) {
     }
   });
 
-  // Sign in with Google: only when the server has a Google client id (otherwise nothing changes)
-  googleButton(endpoint.endsWith('login') ? 'signin_with' : 'signup_with', msg).catch(() => {});
+  // Sign in with Google / Telegram: each button appears only when the server is set up for it
+  socialButtons(endpoint.endsWith('login') ? 'signin_with' : 'signup_with', msg).catch(() => {});
 
   // The brand panel shows live numbers of the community
   api('GET', '/api/mobile/impact').then((impact) => {
@@ -74,13 +74,62 @@ const loadGoogle = () => new Promise((resolve, reject) => {
   document.head.append(s);
 });
 
-async function googleButton(text, msg) {
-  const { googleClientId } = await api('GET', '/api/config');
-  if (!googleClientId) return;
+async function socialButtons(text, msg) {
+  const config = await api('GET', '/api/config');
+  // One "or" line under the buttons; Telegram sits under Google.
+  const slot = h('div', { class: 'google-slot hidden' });
+  const telegram = config.telegramLogin ? telegramButton(msg) : null;
+  if (!config.googleClientId && !telegram) return;
+  $('#form').before(...[slot, telegram, h('p', { class: 'or-line' }, h('span', {}, 'or'))].filter(Boolean));   // before() would print a null as text
+  if (config.googleClientId) await googleButton(config.googleClientId, slot, text, msg);
+}
+
+// ---------- Continue with Telegram ----------
+// Telegram's own login widget is web-only and needs a fixed domain, so the website uses the same flow as the
+// Android app: the server gives a one-time link t.me/<bot>?start=login_<token>, the person taps Start in
+// Telegram, and this page asks the server every 2 seconds whether that happened (for at most 5 minutes).
+function telegramButton(msg) {
+  const button = h('button', { class: 'btn btn-telegram btn-block btn-large', type: 'button' }, icon('plane'), 'Continue with Telegram');
+  const note = h('p', { class: 'tg-note hidden', role: 'status' });
+  const box = h('div', { class: 'tg-login' }, button, note);
+  const reset = (text, kind) => {
+    button.disabled = false;
+    note.classList.add('hidden');
+    if (text) say(msg, text, kind);
+  };
+  button.addEventListener('click', async () => {
+    say(msg, '');
+    button.disabled = true;
+    // Open the tab now, inside the click: a tab opened later (after the server answers) is blocked as a pop-up.
+    const tab = window.open('about:blank', '_blank');
+    try {
+      const { url, token, expiresIn } = await api('POST', '/api/auth/telegram/start', {});
+      if (tab) { tab.opener = null; tab.location.href = url; }
+      note.replaceChildren('Tap ', h('b', {}, 'Start'), ' in Telegram, then come back to this page. ',
+        h('a', { href: url, target: '_blank', rel: 'noopener' }, 'Open Telegram again'));
+      note.classList.remove('hidden');
+      const until = Date.now() + (expiresIn || 300) * 1000;
+      const ask = async () => {
+        try {
+          const r = await api('GET', `/api/auth/telegram/status?token=${encodeURIComponent(token)}`);
+          if (r.status === 'confirmed') { location.href = nextUrl(); return; }
+          if (r.status === 'expired') return reset('The Telegram link expired. Please try again.');
+        } catch { /* a short network problem: keep asking until the time is up */ }
+        if (Date.now() > until) return reset('The Telegram link expired. Please try again.');
+        setTimeout(ask, 2000);
+      };
+      setTimeout(ask, 2000);
+    } catch (err) {
+      if (tab) tab.close();
+      reset(err.message);
+    }
+  });
+  return box;
+}
+
+async function googleButton(googleClientId, slot, text, msg) {
   await loadGoogle();
-  const slot = h('div', { class: 'google-slot' });
-  const or = h('p', { class: 'or-line' }, h('span', {}, 'or'));
-  $('#form').before(slot, or);
+  slot.classList.remove('hidden');
   window.google.accounts.id.initialize({
     client_id: googleClientId,
     ux_mode: 'popup',

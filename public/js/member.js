@@ -35,12 +35,28 @@ box.append(h('section', { class: 'card gold-edge' },
     avatar(member.display_name, member.id, 'lg'),
     h('div', {},
       h('h1', { class: 'page-title' }, member.display_name),
+      member.username ? h('p', { class: 'handle' }, `@${member.username}`) : null,
       h('p', { class: 'city' }, icon('map_pin'), member.city || 'City not set'),
+      member.faculty || member.study_year || (member.languages || []).length ? h('div', { class: 'chips' },
+        member.faculty ? h('span', { class: 'chip chip-gray' }, member.faculty) : null,
+        member.study_year ? h('span', { class: 'chip chip-gray' }, `Year ${member.study_year}`) : null,
+        (member.languages || []).map((l) => h('span', { class: 'chip chip-gray' }, l))) : null,
       h('div', { class: 'row' },
         rv.enabled && rv.count ? h('span', { class: 'rating' }, stars(rv.average), `${rv.average} · ${rv.count} review${rv.count > 1 ? 's' : ''}`) : h('span', { class: 'chip chip-gray' }, 'No reviews yet'),
         h('span', { class: 'chip chip-gold' }, icon('cap'), `Teaches ${member.offers.length}`),
         own ? h('a', { class: 'chip chip-gold', href: '/profile' }, icon('edit'), 'This is you · edit') : null))),
-  member.bio ? h('p', { class: 'bio-full' }, member.bio) : null));
+  member.bio ? h('p', { class: 'bio-full' }, member.bio) : null,
+  contactBlock()));
+
+// Telegram and phone arrive from the server only when this viewer may see them (the privacy rule is checked there).
+function contactBlock() {
+  if (own) return null;
+  if (member.contacts_hidden) return h('p', { class: 'contact-locked' }, '🔒 Book a lesson to see contacts');
+  if (!member.telegram_username && !member.phone) return null;
+  return h('div', { class: 'contact-row' },
+    member.telegram_username ? h('a', { class: 'btn btn-telegram btn-small', href: `https://t.me/${encodeURIComponent(member.telegram_username)}`, target: '_blank', rel: 'noopener' }, icon('plane'), 'Message on Telegram') : null,
+    member.phone ? h('a', { class: 'btn btn-secondary btn-small', href: `tel:${member.phone}` }, `Call ${member.phone}`) : null);
+}
 
 const main = h('div');
 const aside = h('div', { class: 'sticky' });

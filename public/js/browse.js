@@ -13,7 +13,7 @@ const categories = [...new Map(skills.map((s) => [s.category_id, s.category]))];
 
 // Remember the last search in the address bar, so "Back" from a member page returns to the same results.
 const params0 = new URLSearchParams(location.search);
-const q = h('input', { id: 'q', type: 'search', placeholder: 'Try "guitar", "Python" or "Tashkent"', 'aria-label': 'Search members', autocomplete: 'off', value: params0.get('q') || '' });
+const q = h('input', { id: 'q', type: 'search', placeholder: 'Try "guitar", "Tashkent" or "@username"', 'aria-label': 'Search members', autocomplete: 'off', value: params0.get('q') || '' });
 let category = params0.get('category') || '';
 
 const catBar = h('div', { class: 'chips', role: 'group', 'aria-label': 'Category' });
@@ -71,7 +71,7 @@ async function search() {
   }
   results.append(...stagger(members.map((m) => h('a', { class: 'card card-link person', href: `/member?id=${m.id}` },
     h('div', { class: 'who' }, avatar(m.display_name, m.id),
-      h('div', {}, h('h3', {}, m.display_name), h('span', { class: 'city' }, icon('map_pin'), m.city || 'City not set')),
+      h('div', {}, h('h3', {}, m.display_name), m.username ? h('span', { class: 'handle' }, `@${m.username} · `) : null, h('span', { class: 'city' }, icon('map_pin'), m.city || 'City not set')),
       m.id === me.id ? h('span', { class: 'chip chip-gold tag-mutual' }, 'You') : null),
     m.bio ? h('p', { class: 'bio' }, m.bio) : null,
     h('p', { class: 'label' }, 'Teaches'),

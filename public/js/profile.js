@@ -27,11 +27,40 @@ nameInput.addEventListener('input', () => preview.replaceChildren(avatar(nameInp
 const bio = h('textarea', { id: 'bio', maxlength: 500, placeholder: 'What do you study, what do you love teaching?' }, p.bio || '');
 const bioCount = h('span', { class: 'hint' }, `${(p.bio || '').length} / 500`);
 bio.addEventListener('input', () => { bioCount.textContent = `${bio.value.length} / 500`; });
+// @username: checked against the server while typing (400 ms after the last key), green tick or red cross
+const usernameInput = h('input', { id: 'username', value: p.username || '', maxlength: 21, autocomplete: 'username', autocapitalize: 'none', spellcheck: 'false', placeholder: 'e.g. aziza_k' });
+const usernameNote = h('p', { class: 'name-check', role: 'status' });
+let usernameTimer = null;
+usernameInput.addEventListener('input', () => {
+  clearTimeout(usernameTimer);
+  const value = usernameInput.value.trim();
+  usernameNote.textContent = '';
+  if (!value || value.replace(/^@/, '').toLowerCase() === (p.username || '')) return;
+  usernameTimer = setTimeout(async () => {
+    try {
+      const r = await api('GET', `/api/users/username-available?u=${encodeURIComponent(value)}`);
+      if (usernameInput.value.trim() !== value) return;            // the person kept typing
+      usernameNote.className = `name-check ${r.available ? 'ok' : 'bad'}`;
+      usernameNote.textContent = r.available ? `✓ @${r.username} is free` : `✗ ${r.reason}`;
+    } catch { /* offline: the server checks again when saving */ }
+  }, 400);
+});
+const VIS = [['everyone', 'Everyone'], ['matches', 'Only people I have a lesson or a perfect match with'], ['nobody', 'Nobody']];
+const visibility = h('select', { id: 'contact_visibility' }, VIS.map(([v, label]) => h('option', { value: v, selected: v === (p.contact_visibility || 'matches') }, label)));
+const year = h('select', { id: 'study_year' }, [['', 'Not set'], ['1', '1st year'], ['2', '2nd year'], ['3', '3rd year'], ['4', '4th year']]
+  .map(([v, label]) => h('option', { value: v, selected: v === String(p.study_year || '') }, label)));
 const form = h('form', { class: 'card', novalidate: true },
-  h('div', { class: 'card-head' }, preview, h('div', {}, h('h3', {}, 'About you'), h('p', { class: 'meta' }, 'Your name, city and a few words.'))),
+  h('div', { class: 'card-head' }, preview, h('div', {}, h('h3', {}, 'About you'), h('p', { class: 'meta' }, 'Your name, username, studies and how people can reach you.'))),
   msg,
   h('div', { class: 'form-grid two' },
     h('div', { class: 'field' }, h('label', { for: 'display_name' }, 'Name'), nameInput),
+    h('div', { class: 'field' }, h('label', { for: 'username' }, '@username ', h('span', { class: 'hint' }, '(3-20: a-z, 0-9, _)')), usernameInput, usernameNote),
+    h('div', { class: 'field' }, h('label', { for: 'faculty' }, 'Faculty ', h('span', { class: 'hint' }, '(optional)')), h('input', { id: 'faculty', value: p.faculty || '', maxlength: 80, placeholder: 'e.g. IT-Business' })),
+    h('div', { class: 'field' }, h('label', { for: 'study_year' }, 'Year of study'), year),
+    h('div', { class: 'field' }, h('label', { for: 'languages' }, 'Languages ', h('span', { class: 'hint' }, '(comma separated)')), h('input', { id: 'languages', value: (p.languages || []).join(', '), maxlength: 200, placeholder: 'Uzbek, English, Russian' })),
+    h('div', { class: 'field' }, h('label', { for: 'telegram_username' }, 'Telegram username ', h('span', { class: 'hint' }, '(filled in when you connect Telegram)')), h('input', { id: 'telegram_username', value: p.telegram_username ? `@${p.telegram_username}` : '', maxlength: 40, autocapitalize: 'none', placeholder: '@username' })),
+    h('div', { class: 'field' }, h('label', { for: 'phone' }, 'Phone ', h('span', { class: 'hint' }, '(optional)')), h('input', { id: 'phone', type: 'tel', value: p.phone || '', maxlength: 24, autocomplete: 'tel', inputmode: 'tel', placeholder: '+998 90 123 45 67' })),
+    h('div', { class: 'field' }, h('label', { for: 'contact_visibility' }, 'Who sees my Telegram and phone'), visibility),
     h('div', { class: 'field' }, h('label', { for: 'city' }, 'City ', h('span', { class: 'hint' }, '(optional)')), h('input', { id: 'city', value: p.city || '', maxlength: 80, autocomplete: 'address-level2' }))),
   h('div', { class: 'field' }, h('label', { for: 'email' }, 'Email ', h('span', { class: 'hint' }, '(only you see it)')), h('input', { id: 'email', value: p.email, disabled: true })),
   h('div', { class: 'field' }, h('label', { for: 'bio' }, 'About you ', bioCount), bio),
@@ -42,7 +71,14 @@ form.addEventListener('submit', async (e) => {
   if (save.disabled) return;
   save.disabled = true;
   try {
-    await api('PUT', '/api/me/profile', { display_name: nameInput.value, city: $('#city').value, bio: bio.value });
+    await api('PUT', '/api/me/profile', {
+      display_name: nameInput.value, city: $('#city').value, bio: bio.value,
+      username: usernameInput.value, faculty: $('#faculty').value, study_year: year.value,
+      languages: $('#languages').value, telegram_username: $('#telegram_username').value, phone: $('#phone').value,
+      contact_visibility: visibility.value,
+    });
+    p.username = usernameInput.value.trim().replace(/^@/, '').toLowerCase() || p.username;
+    usernameNote.textContent = '';
     say(msg, ''); toast('Profile saved');
   } catch (err) { say(msg, err.message, 'error'); }
   save.disabled = false;
