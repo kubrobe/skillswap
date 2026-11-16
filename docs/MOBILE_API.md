@@ -22,6 +22,10 @@ same PostgreSQL database on Supabase. An account made on the website works in th
 | GET  | `/api/mobile/telegram` | is the bot set up, is my Telegram linked |
 | POST | `/api/mobile/telegram/link` | a one-time `t.me/<bot>?start=<code>` link (15 minutes) |
 | POST | `/api/mobile/telegram/unlink` | stop Telegram messages |
+| POST | `/api/mobile/auth/telegram/start` | **Log in with Telegram**, step 1: a one-time link `t.me/<bot>?start=login_<token>` (5 minutes) and the `token` to ask with (website: `/api/auth/telegram/start`) |
+| GET  | `/api/mobile/auth/telegram/status?token=` | step 2, asked every 2 s: `pending`, `expired`, or `confirmed` with `{token, user, isNew}` like a normal login; the token works once (website: `/api/auth/telegram/status`, sets the cookie) |
+| GET  | `/api/mobile/users/username-available?u=` | live check for the @username field: `{username, available, reason}` (website: `/api/users/...`) |
+| GET  | `/api/mobile/users/by-username/:username` | public profile by @username; Telegram and phone only if the privacy rule allows (website: `/api/users/...`) |
 | POST | `/api/mobile/wants` | my wish list (what I want to learn) → used for perfect matches |
 | POST | `/api/mobile/bookings/:id/plan` | 60-minute lesson plan (AI if `ANTHROPIC_API_KEY` is set, otherwise a template), cached |
 | POST | `/api/mobile/register` | new account → `{token, user}` |
@@ -107,3 +111,17 @@ Lessons happen **inside the app** (native WebRTC), not on an external meeting we
   `notice` + Telegram message "Aziza is waiting for you in the Python video lesson".
 * TURN (relays media when phones cannot reach each other directly): set `TURN_KEY_ID` and `TURN_KEY_API_TOKEN`
   (Cloudflare Realtime TURN). The phone only ever gets credentials that expire. Without them: STUN only.
+
+## @username, richer profile and contact privacy (`src/profiles.js`, `db/15_telegram_profiles.sql`)
+
+* `POST/PATCH /api/mobile/me` (app) and `PUT /api/me/profile` (website) also accept `username`, `telegramUsername`,
+  `phone` (E.164), `faculty`, `studyYear` (1-4), `languages` and `contactVisibility` (`everyone` / `matches` / `nobody`).
+  Only the fields that are sent are changed. Invalid values get a 400 with a clear message; a taken username gets 409.
+* Every person in `/sync` now has `username`, `faculty`, `studyYear`, `languages`, `telegramUsername`, `phone` and
+  `contactsHidden`.
+* **Privacy rule, checked on the server:** `telegramUsername` and `phone` are sent only if the owner chose `everyone`,
+  or chose `matches` and the viewer shares a booking with them (any status except cancelled; an accepted or completed
+  website swap counts too) or is a two-way perfect match. Otherwise both are `null` and `contactsHidden` is `true`.
+* **Log in with Telegram** uses the bot from `src/telegram.js` (same `TELEGRAM_BOT_TOKEN`). A new Telegram person gets
+  an account (name = Telegram first name, welcome credits, bot alerts on). A person who used "Connect Telegram" before
+  lands in their existing account. On Render the bot is reached by webhook; without a public address it uses long polling.

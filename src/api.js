@@ -6,6 +6,7 @@ import { mongo, mongoEnabled } from './mongo.js';
 import { notify } from './notify.js';
 import { collabRoutes } from './collab.js';
 import * as P from './mongo-pipelines.js';
+import { EXTRA_COLUMNS, contactFlagsSql, webExtras, cleanProfileExtras, saveProfileExtras } from './profiles.js';
 
 const LEVELS = ['beginner', 'intermediate', 'advanced'];
 
@@ -49,15 +50,26 @@ export function apiRoutes(app) {
 
   // ---------- My profile ----------
   app.get('/api/me/profile', async (req, res) => {
-    const r = await query('SELECT display_name, city, bio FROM profiles WHERE user_id = $1', [req.user.id]);
-    res.json({ email: req.user.email, ...r.rows[0] });
+    const r = await query(
+      `SELECT u.id, p.display_name, p.city, p.bio, ${EXTRA_COLUMNS}
+         FROM users u JOIN profiles p ON p.user_id = u.id WHERE u.id = $1`, [req.user.id]);
+    const row = r.rows[0];
+    res.json({
+      email: req.user.email, display_name: row.display_name, city: row.city, bio: row.bio,
+      ...webExtras(row, req.user.id), contact_visibility: row.contact_visibility,
+    });
   });
 
   app.put('/api/me/profile', async (req, res) => {
     const name = cleanText(req.body.display_name, { min: 2, max: 60, field: 'Name' });
     const city = cleanText(req.body.city, { max: 80, field: 'City' });
     const bio = cleanText(req.body.bio, { max: 500, field: 'Bio' });
-    await query('UPDATE profiles SET display_name=$1, city=$2, bio=$3 WHERE user_id=$4', [name, city || null, bio, req.user.id]);
+    // username, telegram_username, phone, faculty, study_year, languages, contact_visibility: optional, checked in src/profiles.js
+    const extras = cleanProfileExtras(req.body);
+    await withTransaction(async (db) => {
+      await db.query('UPDATE profiles SET display_name=$1, city=$2, bio=$3 WHERE user_id=$4', [name, city || null, bio, req.user.id]);
+      await saveProfileExtras(db, req.user.id, extras);
+    });
     res.json({ ok: true });
   });
 
@@ -98,24 +110,27 @@ export function apiRoutes(app) {
   }
 
   // ---------- Search members ----------
-  // ?q=text (name or skill)  &category=id
+  // ?q=text (name, skill or @username)  &category=id
   app.get('/api/members', async (req, res) => {
     const q = String(req.query.q || '').trim().slice(0, 60).replace(/[\\%_]/g, '\\$&');
+    const handle = q.replace(/^@/, '');        // "@aziza" finds the member with that username
     const category = req.query.category ? cleanId(req.query.category, 'category') : null;
     const r = await query(
       `SELECT p.user_id AS id, p.display_name, p.city, p.bio,
+              (SELECT uu.username FROM users uu WHERE uu.id = p.user_id) AS username,
               (SELECT coalesce(json_agg(json_build_object('id', s.id, 'name', s.name, 'level', o.level) ORDER BY s.name), '[]')
                  FROM user_offers o JOIN skills s ON s.id = o.skill_id WHERE o.user_id = p.user_id) AS offers
          FROM profiles p
         WHERE p.user_id <> $1
           AND ($2 = '' OR p.display_name ILIKE '%' || $2 || '%' OR p.city ILIKE '%' || $2 || '%'
+               OR ($4 <> '' AND EXISTS (SELECT 1 FROM users uu WHERE uu.id = p.user_id AND uu.username ILIKE '%' || $4 || '%'))
                OR EXISTS (SELECT 1 FROM user_offers o JOIN skills s ON s.id = o.skill_id
                            WHERE o.user_id = p.user_id AND s.name ILIKE '%' || $2 || '%'))
           AND ($3::int IS NULL
                OR EXISTS (SELECT 1 FROM user_offers o JOIN skills s ON s.id = o.skill_id
                            WHERE o.user_id = p.user_id AND s.category_id = $3))
         ORDER BY p.display_name LIMIT 50`,
-      [req.user.id, q, category]);
+      [req.user.id, q, category, handle]);
 
     // Remember what people search for (feeds the "in demand" statistics). If the text is exactly a
     // skill name we also store its id. A failure here must never break the search itself.
@@ -149,8 +164,13 @@ export function apiRoutes(app) {
 
   app.get('/api/members/:id', async (req, res) => {
     const id = cleanId(req.params.id, 'id');
-    const p = await query('SELECT user_id AS id, display_name, city, bio FROM profiles WHERE user_id = $1', [id]);
+    // Telegram username and phone are filled in only when the privacy rule allows it for THIS viewer (src/profiles.js)
+    const p = await query(
+      `SELECT u.id, p.display_name, p.city, p.bio, ${EXTRA_COLUMNS}, ${contactFlagsSql('$2', 'u.id')}
+         FROM users u JOIN profiles p ON p.user_id = u.id WHERE u.id = $1`, [id, req.user.id]);
     if (!p.rows[0]) throw new HttpError(404, 'Member not found');
+    const row = p.rows[0];
+    const person = { id: row.id, display_name: row.display_name, city: row.city, bio: row.bio, ...webExtras(row, req.user.id) };
     const offers = await query(
       `SELECT s.id AS skill_id, s.name AS skill, o.level, o.description
          FROM user_offers o JOIN skills s ON s.id = o.skill_id WHERE o.user_id = $1 ORDER BY s.name`, [id]);
@@ -158,7 +178,7 @@ export function apiRoutes(app) {
       `SELECT s.id AS skill_id, s.name AS skill, r.description
          FROM user_requests r JOIN skills s ON s.id = r.skill_id WHERE r.user_id = $1 ORDER BY s.name`, [id]);
     if (id !== req.user.id) track(req, 'profile_view');
-    res.json({ ...p.rows[0], offers: offers.rows, wants: wants.rows });
+    res.json({ ...person, offers: offers.rows, wants: wants.rows });
   });
 
   // ---------- Matching ----------

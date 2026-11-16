@@ -43,9 +43,9 @@ export function broadcastChanged() {
 }
 
 /** A personal message that the phone shows as a banner, e.g. "Bobur booked your lesson". */
-export function notify(userId, text) {
+export function notify(userId, text, telegramText = text) {
   for (const res of clients.get(userId) || []) send(res, 'notice', { text });
-  telegramNotify(userId, text);              // and to Telegram, if this person linked it (works with the app closed)
+  telegramNotify(userId, telegramText);      // and to Telegram, if this person linked it (works with the app closed)
 }
 
 /** A message for everybody except one person (e.g. a new lesson was published). */

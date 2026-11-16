@@ -17,6 +17,9 @@ import { understand, rankOffers, aiMatch } from './matchmaker.js';
 import { telegramAppRoutes } from './telegram.js';
 import { mobileSchemaReady } from './migrations.js';
 import { endRoomsForBooking, myRooms } from './rooms.js';
+import {
+  EXTRA_COLUMNS, contactFlagsSql, canSeeContacts, mobileUser, mobileMe, cleanProfileExtras, saveProfileExtras, profileRoutes,
+} from './profiles.js';
 
 // Live messages are sent AFTER the answer; a problem there must never break the request.
 const later = (work) => Promise.resolve().then(work).catch((e) => console.error('live update failed:', e.message));
@@ -52,12 +55,15 @@ const leaderboard = (thisWeek) => query(
 async function lessonInfo(bookingId) {
   const r = await query(
     `SELECT b.learner_id, o.user_id AS teacher_id, split_part(lp.display_name, ' ', 1) AS learner,
-            split_part(tp.display_name, ' ', 1) AS teacher, s.name AS skill, os.weekday, os.hour
+            split_part(tp.display_name, ' ', 1) AS teacher, s.name AS skill, os.weekday, os.hour,
+            lu.username AS learner_username, lu.telegram_username AS learner_telegram,
+            lu.contact_visibility AS learner_visibility
        FROM slot_bookings b
        JOIN user_offers o  ON o.id = b.offer_id
        JOIN offer_slots os ON os.id = b.slot_id
        JOIN skills s       ON s.id = o.skill_id
        JOIN profiles lp    ON lp.user_id = b.learner_id
+       JOIN users lu       ON lu.id = b.learner_id
        JOIN profiles tp    ON tp.user_id = o.user_id
       WHERE b.id = $1`, [bookingId]);
   const i = r.rows[0];
@@ -90,7 +96,15 @@ function cleanSlots(value) {
   return out;
 }
 
-const publicUser = (row) => ({ id: row.id, fullName: row.display_name, email: row.email, bio: row.bio || '' });
+/**
+ * The Telegram message a teacher gets when their lesson is booked. The "Tap to chat" link follows the
+ * contact-privacy rule: the two now share a booking, so it is left out only if the learner chose "nobody".
+ */
+export function bookedTelegramText(i) {
+  const who = i.learner_username ? `@${i.learner_username}` : i.learner;
+  const mayChat = i.learner_telegram && canSeeContacts({ visibility: i.learner_visibility, sharesBooking: true });
+  return `📚 ${who} booked your ${i.skill} lesson on ${i.when}.` + (mayChat ? ` Tap to chat: t.me/${i.learner_telegram}` : '');
+}
 
 // Everything the app needs, in one answer. The app writes it into its own SQLite copy.
 async function snapshot(userId) {
@@ -149,8 +163,9 @@ async function snapshot(userId) {
   const [users, skills, offers, slots, bookings, reviews] = await Promise.all([
     // Only people the app shows: myself, every teacher, and the learners of MY lessons.
     // E-mail addresses of other people are NOT sent (privacy); the phone only needs names.
+    // Telegram username and phone go through the contact-privacy rule (src/profiles.js) before they are sent.
     query(`SELECT u.id, CASE WHEN u.id = $1 THEN u.email ELSE 'user' || u.id || '@hidden.skillswap' END AS email,
-                  p.display_name, p.bio
+                  p.display_name, p.bio, ${EXTRA_COLUMNS}, ${contactFlagsSql('$1', 'u.id')}
              FROM users u JOIN profiles p ON p.user_id = u.id
             WHERE u.id = $1
                OR u.id IN (SELECT user_id FROM user_offers)
@@ -201,7 +216,7 @@ async function snapshot(userId) {
   ]);
   return {
     ...extra,
-    users: users.rows.map(publicUser),
+    users: users.rows.map((row) => mobileUser(row, userId)),
     skills: skills.rows,
     offers: offers.rows.map((o) => ({ ...o, level: toTitle(o.level) })),
     slots: slots.rows,
@@ -324,6 +339,9 @@ export function mobileRoutes(app) {
 
   // Telegram bot: link / unlink / status (the bot itself is in src/telegram.js)
   telegramAppRoutes(app, requireAuth);
+
+  // @username: live availability check and public profile by username (src/profiles.js)
+  profileRoutes(app, requireAuth);
 
   // AI matchmaker: "I want to learn guitar on weekends" (spoken or typed, English / Uzbek / Russian)
   // -> the 3 best lessons with a reason each. Claude when ANTHROPIC_API_KEY is set, keywords otherwise.
@@ -476,7 +494,7 @@ export function mobileRoutes(app) {
       throw e;
     }
     const { token } = await createSessionToken(id);
-    res.status(201).json({ token, user: { id, fullName: name, email, bio: '' } });
+    res.status(201).json({ token, user: await mobileMe(id) });
   });
 
   app.post('/api/mobile/login', async (req, res) => {
@@ -488,7 +506,7 @@ export function mobileRoutes(app) {
     const ok = row?.password_hash && (await bcrypt.compare(String(req.body.password || ''), row.password_hash));
     if (!ok) throw new HttpError(401, 'Wrong email or password');   // same text for both cases
     const { token } = await createSessionToken(row.id);
-    res.json({ token, user: publicUser(row) });
+    res.json({ token, user: await mobileMe(row.id) });
   });
 
   app.post('/api/mobile/logout', requireAuth, async (req, res) => {
@@ -499,15 +517,25 @@ export function mobileRoutes(app) {
 
   app.get('/api/mobile/sync', requireAuth, async (req, res) => {
     const [data, rooms] = await Promise.all([snapshot(req.user.id), myRooms(req.user.id)]);
-    res.json({ user: publicUser({ ...req.user, id: req.user.id }), ...data, rooms });
+    res.json({ user: data.users.find((u) => u.id === req.user.id), ...data, rooms });
   });
 
   // POST and PATCH both work: Android's built-in HttpURLConnection cannot send PATCH.
+  // Name and bio as before. The new fields (username, Telegram username, phone, faculty, year, languages,
+  // contact visibility) are optional: only the ones that are sent are checked and saved, so the "Pick your
+  // @username" screen can send just { username }.
   const updateMe = async (req, res) => {
-    const name = cleanText(req.body.fullName, { min: 2, max: 60, field: 'Name' });
-    const bio = cleanText(req.body.bio, { max: 500, field: 'Bio' });
-    await query('UPDATE profiles SET display_name = $2, bio = $3 WHERE user_id = $1', [req.user.id, name, bio]);
-    res.json({ user: { id: req.user.id, fullName: name, email: req.user.email, bio } });
+    const body = req.body || {};
+    const name = body.fullName === undefined ? null : cleanText(body.fullName, { min: 2, max: 60, field: 'Name' });
+    const bio = body.bio === undefined ? null : cleanText(body.bio, { max: 500, field: 'Bio' });
+    const extras = cleanProfileExtras(body);
+    await withTransaction(async (db) => {
+      await db.query('UPDATE profiles SET display_name = COALESCE($2, display_name), bio = COALESCE($3, bio) WHERE user_id = $1',
+        [req.user.id, name, bio]);
+      await saveProfileExtras(db, req.user.id, extras);
+    });
+    res.json({ user: await mobileMe(req.user.id) });
+    if (extras.username || name) later(() => broadcastChanged());     // other phones show the new @username / name
   };
   app.patch('/api/mobile/me', requireAuth, updateMe);
   app.post('/api/mobile/me', requireAuth, updateMe);
@@ -584,7 +612,8 @@ export function mobileRoutes(app) {
     res.status(201).json({ bookingId });
     later(async () => {
       const i = await lessonInfo(bookingId);
-      notify(i.teacher_id, `🎉 ${i.learner} booked your ${i.skill} lesson · ${i.when}`);
+      // phones get the short banner; Telegram gets the message with the learner's @username and a chat link
+      notify(i.teacher_id, `🎉 ${i.learner} booked your ${i.skill} lesson · ${i.when}`, bookedTelegramText(i));
       broadcastActivity(`A student booked ${i.skill} with ${i.teacher}`);
       broadcastChanged();
     });
