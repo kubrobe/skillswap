@@ -272,7 +272,8 @@ export function cleanSignal(body) {
       break;
     case 'media':
       if (typeof p.audio !== 'boolean' || typeof p.video !== 'boolean') throw new HttpError(400, 'Invalid media state');
-      payload = { audio: p.audio, video: p.video };
+      // screen: true = the picture is the sender's shared screen ("Demonstrate"), not their camera
+      payload = { audio: p.audio, video: p.video, ...(p.screen === true ? { screen: true } : {}) };
       break;
     default:
       payload = {};

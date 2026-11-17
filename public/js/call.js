@@ -7,6 +7,10 @@
 // - a newcomer who gets no offer within a few seconds asks for one ("renegotiate");
 // - two offers at once: the smaller user id keeps offering, the other answers;
 // - every message has an id; one delivered twice is ignored.
+//
+// "Demonstrate": the teacher (or the learner) shows their screen. The screen REPLACES the camera on the same
+// video line (RTCRtpSender.replaceTrack), so there is no new offer and nothing that could drop the call.
+// The "media" message then carries screen: true, so the other side says "… is showing their screen".
 import { api, h, icon, requireLogin } from '/app.js';
 
 const box = document.getElementById('call');
@@ -30,6 +34,8 @@ let localStream = null;
 let micOn = true;
 let camOn = true;
 let sendChain = Promise.resolve();
+let screenStream = null;  // while demonstrating: the shared screen (sent instead of the camera)
+const canDemonstrate = !!navigator.mediaDevices?.getDisplayMedia;   // phone browsers cannot share their screen
 
 // ---------- screen ----------
 const remoteVideo = h('video', { class: 'call-remote', autoplay: true, playsinline: true });
@@ -40,11 +46,21 @@ const title = h('h1', { class: 'call-title' }, 'Video lesson');
 const peerState = h('p', { class: 'call-peer-state' });
 const micBtn = h('button', { class: 'call-btn', type: 'button', 'aria-label': 'Microphone on/off', onclick: toggleMic }, icon('mic'));
 const camBtn = h('button', { class: 'call-btn', type: 'button', 'aria-label': 'Camera on/off', onclick: toggleCam }, icon('video'));
+// a monitor with an arrow (start) or a cross (stop); the same drawing as the app's "screen_share" icon
+const screenIcon = (stop) => {
+  const t = document.createElement('template');
+  const p = (d) => `<path d="${d}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`;
+  t.innerHTML = `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${p('M4.6 4.4 H19.4 A1.8 1.8 0 0 1 21.2 6.2 V15.4 A1.8 1.8 0 0 1 19.4 17.2 H4.6 A1.8 1.8 0 0 1 2.8 15.4 V6.2 A1.8 1.8 0 0 1 4.6 4.4 Z')}${p('M8.4 20.4 H15.6')}${p('M12 17.2 V20.4')}${
+    stop ? p('M9.6 8.4 L14.4 13.2') + p('M14.4 8.4 L9.6 13.2') : p('M12 13.8 V8') + p('M9.4 10.4 L12 7.8 L14.6 10.4')}</svg>`;
+  return t.content.firstChild;
+};
+const shareBtn = h('button', { class: 'call-btn', type: 'button', 'aria-label': 'Demonstrate (share my screen)',
+  title: 'Demonstrate (share my screen)', onclick: () => (screenStream ? stopDemonstrating() : startDemonstrating()) }, screenIcon(false));
 const leaveBtn = h('button', { class: 'call-btn call-leave', type: 'button', 'aria-label': 'Leave', onclick: () => leave(false) }, icon('close'));
 const endBtn = h('button', { class: 'btn btn-secondary btn-small', type: 'button', onclick: () => leave(true) }, 'End for both');
 const stage = h('div', { class: 'call-stage' }, remoteVideo, localVideo,
   h('div', { class: 'call-top' }, title, status, peerState));
-const controls = h('div', { class: 'call-controls' }, micBtn, camBtn, leaveBtn);
+const controls = h('div', { class: 'call-controls' }, micBtn, camBtn, canDemonstrate ? shareBtn : null, leaveBtn);
 
 function say(text) { status.textContent = text; }
 function showMessage(heading, text) {
@@ -91,12 +107,65 @@ function toggleMic() {
 }
 function toggleCam() {
   const t = localStream?.getVideoTracks()[0];
-  if (!t) return;
+  if (!t || screenStream) return;
   camOn = !camOn;
   t.enabled = camOn;
   camBtn.classList.toggle('off', !camOn);
   localVideo.classList.toggle('hidden', !camOn);
   sendMediaState();
+}
+
+// ---------- "Demonstrate": share my screen instead of my camera ----------
+const videoSender = () => pc?.getSenders().find((s) => s.track?.kind === 'video') || null;
+/** What a connection sends: my microphone, and my screen while demonstrating, otherwise my camera. */
+const outgoingTracks = () => [
+  ...(localStream?.getAudioTracks() || []),
+  ...(screenStream ? screenStream.getVideoTracks() : localStream?.getVideoTracks() || []),
+];
+
+async function startDemonstrating() {
+  // the screen travels on the camera's video line, so a camera (permission) is needed for it
+  if (!localStream?.getVideoTracks().length) { say('Allow the camera in your browser to use Demonstrate.'); return; }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 15, max: 30 } }, audio: false });
+  } catch {
+    return;                                              // the person pressed Cancel
+  }
+  const track = stream.getVideoTracks()[0];
+  if (!track || ended) { stream.getTracks().forEach((t) => t.stop()); return; }
+  track.contentHint = 'detail';                          // sharp text rather than smooth motion
+  track.addEventListener('ended', stopDemonstrating);    // the browser's own "Stop sharing" button
+  screenStream = stream;
+  await videoSender()?.replaceTrack(track).catch(() => {});
+  localVideo.srcObject = stream;
+  localVideo.classList.add('screen');
+  localVideo.classList.remove('hidden');
+  showDemonstrating(true);
+  sendMediaState();
+}
+
+async function stopDemonstrating() {
+  if (!screenStream) return;
+  const stream = screenStream;
+  screenStream = null;
+  await videoSender()?.replaceTrack(localStream?.getVideoTracks()[0] || null).catch(() => {});
+  stream.getTracks().forEach((t) => t.stop());
+  localVideo.srcObject = localStream;
+  localVideo.classList.remove('screen');
+  localVideo.classList.toggle('hidden', !camOn);
+  showDemonstrating(false);
+  sendMediaState();
+}
+
+function showDemonstrating(on) {
+  shareBtn.replaceChildren(screenIcon(on));
+  shareBtn.classList.toggle('off', on);                  // white while it is on, like the app
+  const label = on ? 'Stop demonstrating' : 'Demonstrate (share my screen)';
+  shareBtn.setAttribute('aria-label', label);
+  shareBtn.title = label;
+  camBtn.disabled = on;
+  if (on) say('You are showing your screen'); else if (connected()) say('');
 }
 
 // ---------- the room ----------
@@ -180,7 +249,9 @@ function send(type, payload = {}) {
   // one at a time, in order: an offer must reach the other side before its candidates
   sendChain = sendChain.then(() => api('POST', `/api/mobile/rooms/${room.roomId}/signal`, msg)).catch(() => {});
 }
-function sendMediaState() { send('media', { audio: micOn, video: camOn }); }
+function sendMediaState() {
+  send('media', screenStream ? { audio: micOn, video: true, screen: true } : { audio: micOn, video: camOn });
+}
 
 async function onSignal(m) {
   if (seen.has(m.id) || m.from === me.id) return;
@@ -209,9 +280,12 @@ async function onSignal(m) {
         else pendingCandidates.push(c);
         break;
       }
-      case 'media':
-        peerState.textContent = [p.audio ? '' : '🔇 muted', p.video ? '' : '📷 camera off'].filter(Boolean).join(' · ');
+      case 'media': {
+        const first = (peer?.name || 'They').split(' ')[0];
+        peerState.textContent = [p.screen ? `🖥️ ${first} is showing their screen` : '', p.audio ? '' : '🔇 muted',
+          p.video ? '' : '📷 camera off'].filter(Boolean).join(' · ');
         break;
+      }
       case 'bye':
         closeLink();
         if (peer) peer.online = false;
@@ -252,7 +326,7 @@ async function startOffer() {
   newLink(true);
   // audio first, then video: the same order as the app
   for (const kind of ['audio', 'video']) {
-    const track = localStream?.getTracks().find((t) => t.kind === kind);
+    const track = outgoingTracks().find((t) => t.kind === kind);
     if (track) pc.addTrack(track, localStream);
     else pc.addTransceiver(kind, { direction: 'recvonly' });
   }
@@ -276,7 +350,7 @@ async function restartIce() {
 function attachLocalTracks() {
   if (!localStream) return;
   const used = new Set(pc.getSenders().map((s) => s.track).filter(Boolean));
-  for (const t of localStream.getTracks()) if (!used.has(t)) pc.addTrack(t, localStream);
+  for (const t of outgoingTracks()) if (!used.has(t)) pc.addTrack(t, localStream);
 }
 
 function newLink(asOfferer) {
@@ -315,6 +389,8 @@ function closeLink() {
 }
 
 function stopMedia() {
+  screenStream?.getTracks().forEach((t) => t.stop());
+  screenStream = null;
   localStream?.getTracks().forEach((t) => t.stop());
   localStream = null;
 }

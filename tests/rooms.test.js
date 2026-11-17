@@ -309,6 +309,11 @@ test('checking in to the lesson closes its room', async () => {
 test('cleanSignal keeps only known fields of known types', () => {
   assert.deepEqual(cleanSignal({ id: 'a', to: 5, type: 'media', payload: { audio: false, video: true, extra: 1 } }),
     { id: 'a', to: 5, type: 'media', payload: { audio: false, video: true } });
+  // "Demonstrate": the screen flag passes through, only as true
+  assert.deepEqual(cleanSignal({ id: 'b', to: 5, type: 'media', payload: { audio: true, video: true, screen: true } }).payload,
+    { audio: true, video: true, screen: true });
+  assert.deepEqual(cleanSignal({ id: 'c', to: 5, type: 'media', payload: { audio: true, video: true, screen: 'yes' } }).payload,
+    { audio: true, video: true });
   assert.deepEqual(cleanSignal({ id: 'a', to: '7', type: 'answer', payload: { sdp: 'v=0', evil: '<x>' } }),
     { id: 'a', to: 7, type: 'answer', payload: { sdp: 'v=0' } });
   assert.deepEqual(cleanSignal({ id: 'a', to: 7, type: 'offer', payload: { sdp: 'v=0', iceRestart: true } }).payload,

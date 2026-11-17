@@ -75,7 +75,7 @@ test('app: start -> link, Start in Telegram -> confirmed; a new person gets an a
 
   assert.deepEqual((await call('GET', `/api/mobile/auth/telegram/status?token=${start.body.token}`)).body, { status: 'pending' });
   assert.equal((await telegramSays(`/start ${startParam(start.body.url)}`, from)).status, 200);
-  assert.equal(lastTo(tgId), "✅ You're logged in to SkillSwap. Go back to the app.");
+  assert.match(lastTo(tgId), /^✅ You're logged in to SkillSwap. Go back to the app./);
 
   const done = await call('GET', `/api/mobile/auth/telegram/status?token=${start.body.token}`);
   assert.equal(done.body.status, 'confirmed');
@@ -156,4 +156,47 @@ test('tokens: 5 minutes only, never confirmed twice, garbage is refused, bots an
   // starting a new login clears out tokens that are too old
   await call('POST', '/api/mobile/auth/telegram/start');
   assert.equal((await pool.query(`SELECT 1 FROM telegram_login_tokens WHERE created_at < now() - interval '5 minutes'`)).rowCount, 0);
+});
+
+test('"Connect Telegram" asks for the phone; one tap saves the person\'s OWN number on their profile', async () => {
+  const chat = tgId + 10;
+  const from = { id: chat, is_bot: false, first_name: 'Phone', username: 'phone_tg' };
+  const reg = await call('POST', '/api/mobile/register', null, { fullName: 'Phone Person', email: `tgphone_${tgId}@test.uz`, password: 'password123' });
+  const link = (await call('POST', '/api/mobile/telegram/link', reg.body.token)).body.url;
+  await telegramSays(`/start ${startParam(link)}`, from);
+  const reply = sent.filter((m) => m.chat_id === chat).pop();
+  assert.match(reply.text, /Connected[\s\S]*@phone_tg[\s\S]*phone number/);
+  assert.equal(reply.reply_markup.keyboard[0][0].request_contact, true, 'the "Share my phone number" button');
+
+  const contact = (c, chatType = 'private') => fetch(`${root}/telegram/webhook`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'X-Telegram-Bot-Api-Secret-Token': _test.webhookSecret() },
+    body: JSON.stringify({ message: { chat: { id: chat, type: chatType }, from, contact: c } }),
+  });
+  const phoneNow = async () => (await call('GET', '/api/mobile/sync', reg.body.token)).body.user.phone;
+
+  // someone else's contact card (forwarded) is refused
+  await contact({ user_id: 42, phone_number: '998911112233', first_name: 'Other' });
+  assert.match(lastTo(chat), /your own number/);
+  assert.equal(await phoneNow(), null);
+  // not in a group chat
+  await contact({ user_id: chat, phone_number: '998901234567', first_name: 'Phone' }, 'group');
+  assert.equal(await phoneNow(), null);
+  // their own number, as Telegram sends it (no "+")
+  await contact({ user_id: chat, phone_number: '998901234567', first_name: 'Phone' });
+  assert.match(lastTo(chat), /Saved \+998901234567/);
+  assert.equal(sent.filter((m) => m.chat_id === chat).pop().reply_markup.remove_keyboard, true);
+  assert.equal(await phoneNow(), '+998901234567');
+
+  // connecting again later: the phone is already there, so the button is not shown
+  const again = (await call('POST', '/api/mobile/telegram/link', reg.body.token)).body.url;
+  await telegramSays(`/start ${startParam(again)}`, from);
+  assert.equal(sent.filter((m) => m.chat_id === chat).pop().reply_markup, undefined);
+});
+
+test('phoneFromTelegram: adds "+", refuses junk', async () => {
+  const { phoneFromTelegram } = await import('../src/telegram.js');
+  assert.equal(phoneFromTelegram('998901234567'), '+998901234567');
+  assert.equal(phoneFromTelegram('+82 10-1234-5678'), '+821012345678');
+  assert.equal(phoneFromTelegram('123'), null);
+  assert.equal(phoneFromTelegram(undefined), null);
 });

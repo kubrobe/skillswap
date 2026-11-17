@@ -961,4 +961,6 @@ body.call-page { margin: 0; background: #0b0d11; color: #fff; min-height: 100vh;
 .call-btn { width: 56px; height: 56px; border-radius: 50%; border: 0; background: #2a2e37; color: #fff; display: grid; place-items: center; cursor: pointer; }
 .call-btn svg { width: 24px; height: 24px; }
 .call-btn.off { background: #fff; color: #0b0d11; }
+.call-btn:disabled { opacity: .35; cursor: default; }
+.call-local.screen { transform: none; object-fit: contain; background: #000; }   /* my shared screen: not mirrored, not cropped */
 .call-leave { background: #ef5350; }

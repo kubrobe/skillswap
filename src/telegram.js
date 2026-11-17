@@ -15,7 +15,7 @@
 // Without a token every function here does nothing, so the rest of the app works the same.
 import crypto from 'node:crypto';
 import { query } from './db.js';
-import { HttpError } from './validate.js';
+import { HttpError, cleanPhone } from './validate.js';
 
 const token = () => process.env.TELEGRAM_BOT_TOKEN || process.env.BOT_TOKEN || '';
 const apiBase = () => process.env.TELEGRAM_API_BASE || 'https://api.telegram.org';
@@ -41,7 +41,46 @@ async function callTelegram(method, body, timeoutMs = 10_000) {
   }
 }
 
-const sendTo = (chatId, text) => callTelegram('sendMessage', { chat_id: chatId, text, disable_web_page_preview: true });
+const sendTo = (chatId, text, extra = {}) =>
+  callTelegram('sendMessage', { chat_id: chatId, text, disable_web_page_preview: true, ...extra });
+
+// Telegram never gives a bot someone's phone number by itself. The bot shows this button; one tap sends the
+// person's own number (a "contact" message), and handleContact() saves it on their SkillSwap profile.
+const PHONE_BUTTON = '📱 Share my phone number';
+const ASK_PHONE = {
+  reply_markup: { keyboard: [[{ text: PHONE_BUTTON, request_contact: true }]], resize_keyboard: true, one_time_keyboard: true },
+};
+const NO_KEYBOARD = { reply_markup: { remove_keyboard: true } };
+const PHONE_HINT = '\n\n📱 Tap the button below to add your phone number to your SkillSwap profile. ' +
+  'You choose who sees it in Edit profile.';
+
+/** "998901234567" (how Telegram sends it) -> "+998901234567"; null when it is not a valid number. */
+export function phoneFromTelegram(raw) {
+  const digits = String(raw || '').replace(/[^0-9+]/g, '');
+  try { return cleanPhone(digits.startsWith('+') ? digits : `+${digits}`); } catch { return null; }
+}
+
+/** The person tapped "Share my phone number": save it on the SkillSwap account this Telegram belongs to. */
+async function handleContact(msg) {
+  const chatId = msg.chat.id;
+  const from = msg.from || {};
+  // A forwarded contact card is someone else's number: only the person's OWN number is accepted.
+  if (!from.id || msg.contact.user_id !== from.id) {
+    return sendTo(chatId, 'Please share your own number with the button below.', ASK_PHONE);
+  }
+  const phone = phoneFromTelegram(msg.contact.phone_number);
+  if (!phone) return sendTo(chatId, 'That number does not look right. Add it in SkillSwap → Profile → Edit profile.', NO_KEYBOARD);
+  // the account that connected this chat first; otherwise the account that logs in with this Telegram
+  const user = (await query(
+    `SELECT u.id FROM users u LEFT JOIN telegram_links l ON l.user_id = u.id
+      WHERE l.chat_id = $1 OR u.telegram_id = $2
+      ORDER BY (l.chat_id = $1) DESC NULLS LAST LIMIT 1`, [chatId, from.id])).rows[0];
+  if (!user) return sendTo(chatId, 'To connect, open the SkillSwap app → Profile → Connect Telegram.', NO_KEYBOARD);
+  await query('UPDATE users SET phone = $2 WHERE id = $1', [user.id, phone]);
+  // the open app downloads a fresh copy, so the number appears on the profile right away
+  import('./live.js').then((live) => live.sendEvent(user.id, 'changed', {})).catch(() => {});
+  return sendTo(chatId, `✅ Saved ${phone} on your SkillSwap profile.`, NO_KEYBOARD);
+}
 
 let username = null;
 export async function botUsername() {
@@ -82,6 +121,7 @@ async function upcomingLessons(userId) {
 
 async function handleMessage(msg) {
   const chatId = msg.chat?.id;
+  if (chatId && msg.contact && (!msg.chat.type || msg.chat.type === 'private')) return handleContact(msg);
   const text = String(msg.text || '').trim();
   if (!chatId || !text.startsWith('/')) {
     if (chatId) await sendTo(chatId, 'Hi! I am the SkillSwap bot. Commands: /next — my lessons, /credits — my balance, /stop — unlink.');
@@ -99,9 +139,11 @@ async function handleMessage(msg) {
           SET telegram_id = $2, tg_username = $3, tg_first_name = $4, confirmed_at = now()
         WHERE token_hash = $1 AND confirmed_at IS NULL AND created_at > now() - interval '${LOGIN_MINUTES} minutes'`,
       [loginTokenHash(arg.slice(LOGIN_PREFIX.length)), from.id, tgName, String(from.first_name || '').slice(0, 64)])).rowCount > 0;
-    return sendTo(chatId, ok
-      ? "✅ You're logged in to SkillSwap. Go back to the app."
-      : 'This login link has expired. Go back to SkillSwap and tap "Continue with Telegram" again.');
+    if (!ok) return sendTo(chatId, 'This login link has expired. Go back to SkillSwap and tap "Continue with Telegram" again.');
+    const hasPhone = (await query('SELECT 1 FROM users WHERE telegram_id = $1 AND phone IS NOT NULL', [from.id])).rowCount > 0;
+    return hasPhone
+      ? sendTo(chatId, "✅ You're logged in to SkillSwap. Go back to the app.")
+      : sendTo(chatId, "✅ You're logged in to SkillSwap. Go back to the app." + PHONE_HINT, ASK_PHONE);
   }
 
   const linked = (await query('SELECT user_id FROM telegram_links WHERE chat_id = $1', [chatId])).rows[0];
@@ -122,10 +164,15 @@ async function handleMessage(msg) {
                                              THEN telegram_id ELSE $3 END
           WHERE id = $1`, [code.user_id, tgName, from.id]);
     }
-    const name = (await query('SELECT display_name FROM profiles WHERE user_id = $1', [code.user_id])).rows[0]?.display_name || '';
-    return sendTo(chatId,
-      `✅ Connected, ${name.split(' ')[0]}! You will get booking alerts and a reminder 1 hour before each lesson.\n` +
-      'Commands: /next — my lessons · /credits — my balance · /stop — unlink');
+    const me = (await query(
+      'SELECT p.display_name, u.phone FROM users u JOIN profiles p ON p.user_id = u.id WHERE u.id = $1', [code.user_id])).rows[0] || {};
+    const connected = `✅ Connected, ${(me.display_name || '').split(' ')[0]}! ` +
+      (tgName ? `Your profile now shows @${tgName}. ` : '') +
+      'You will get booking alerts and a reminder 1 hour before each lesson.\n' +
+      'Commands: /next — my lessons · /credits — my balance · /stop — unlink';
+    // the open app downloads a fresh copy, so the Telegram username appears on the profile right away
+    import('./live.js').then((live) => live.sendEvent(code.user_id, 'changed', {})).catch(() => {});
+    return me.phone ? sendTo(chatId, connected) : sendTo(chatId, connected + PHONE_HINT, ASK_PHONE);
   }
   if (!linked) return sendTo(chatId, 'To connect, open the SkillSwap app → Profile → Connect Telegram.');
 
