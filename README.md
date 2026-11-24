@@ -2,7 +2,7 @@
 
 Trade skills, not bills. SkillSwap is a mobile-first website where members offer a practical skill, say what they want to learn, get matched with each other, swap skills, and book one-hour lessons paid for with time-bank credits. An Android app uses the same backend and database ([skillswap-android](https://github.com/kubrobe/skillswap-android)).
 
-Course project for Big Data (database-backed website).
+Course project for Big Data (database-backed website), later extended for a university hackathon.
 
 **Live site:** https://skillswap-vqt7.onrender.com (free hosting: the first page load after a quiet period can take up to a minute while the server wakes up)
 
@@ -110,12 +110,20 @@ About 59 routes under `/api` (website) and `/api/mobile` (Android app). The mobi
 - `docs/DEPLOY.md` - hosting on Supabase and Render
 - `docs/erd.png` - entity-relationship diagram
 
-## Team
+## Authorship
 
-| Name | Group | Role |
-|---|---|---|
-| Abdullox Xojimurodov (leader) | I24B | Backend: server, database, API |
-| Biloliddin To'laganov | I24B | Design: colours, icons, screens |
-| Najmiddin Kurganov | I24A | Android app and website front end |
+Independent creator and sole developer: Najmiddin Kurganov. This covers the website, server and
+database in this repository and the Android app
+([skillswap-android](https://github.com/kubrobe/skillswap-android)). AI-assisted coding tools were
+used throughout implementation; the commit history preserves this.
 
-All members and data in the demo are fictional.
+SkillSwap was registered as a team project for the Big Data course and a university hackathon.
+That registration was for academic and hackathon participation, not shared implementation.
+
+| Registered team member | Group |
+|---|---|
+| Abdullox Xojimurodov | I24B |
+| Biloliddin To'laganov | I24B |
+| Najmiddin Kurganov | I24A |
+
+All demo accounts and data are fictional.
